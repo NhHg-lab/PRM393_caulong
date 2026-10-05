@@ -128,6 +128,7 @@ class SignupRequest {
     required this.email,
     required this.password,
     this.phone,
+    this.otp,
   });
 
   final String fullName;
@@ -135,12 +136,47 @@ class SignupRequest {
   final String? phone;
   final String password;
 
+  /// Mã OTP 6 số gửi qua email (bước 2 của đăng ký). Null ở chế độ không dùng OTP.
+  final String? otp;
+
+  SignupRequest copyWith({String? otp}) => SignupRequest(
+    fullName: fullName,
+    email: email,
+    phone: phone,
+    password: password,
+    otp: otp ?? this.otp,
+  );
+
   Map<String, dynamic> toJson() => {
     'fullName': fullName,
     'email': email,
     if (phone != null && phone!.isNotEmpty) 'phone': phone,
     'password': password,
+    if (otp != null && otp!.isNotEmpty) 'otp': otp,
   };
+}
+
+/// Kết quả gửi OTP: `POST /api/auth/register/send-otp`.
+class OtpSent {
+  const OtpSent({
+    required this.message,
+    required this.expiresIn,
+    required this.resendAfter,
+  });
+
+  final String message;
+
+  /// Số giây mã còn hiệu lực.
+  final int expiresIn;
+
+  /// Số giây phải chờ trước khi được gửi lại mã.
+  final int resendAfter;
+
+  factory OtpSent.fromJson(Map<String, dynamic> json) => OtpSent(
+    message: (json['message'] as String?) ?? 'Đã gửi mã OTP tới email của bạn.',
+    expiresIn: (json['expiresIn'] as num?)?.toInt() ?? 300,
+    resendAfter: (json['resendAfter'] as num?)?.toInt() ?? 60,
+  );
 }
 
 /// Lỗi xác thực với thông điệp tiếng Việt hiển thị trực tiếp cho người dùng.

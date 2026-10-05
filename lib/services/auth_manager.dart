@@ -86,6 +86,13 @@ class AuthManager extends ChangeNotifier {
     return _service.loginWithGoogleIdToken(idToken);
   }, remember);
 
+  /// Đăng ký có bước xác minh OTP qua email hay không (tuỳ AuthMode).
+  bool get requiresSignupOtp => _service.requiresSignupOtp;
+
+  Future<OtpSent> sendRegisterOtp(String email) =>
+      _service.sendRegisterOtp(email);
+
+  /// Với [requiresSignupOtp], [request] phải có `otp`.
   Future<AppUser> signup(SignupRequest request) =>
       _signIn(() => _service.signup(request), true);
 

@@ -13,6 +13,13 @@ abstract class AuthService {
 
   Future<AuthSession> signup(SignupRequest request);
 
+  /// true nếu đăng ký phải xác minh email bằng OTP (gọi [sendRegisterOtp] trước,
+  /// rồi truyền mã vào [SignupRequest.otp]).
+  bool get requiresSignupOtp;
+
+  /// Bước 1 của đăng ký: gửi mã OTP 6 số tới [email].
+  Future<OtpSent> sendRegisterOtp(String email);
+
   /// Đổi Firebase ID token lấy phiên đăng nhập của hệ thống.
   Future<AuthSession> loginWithGoogleIdToken(String idToken);
 
@@ -46,6 +53,9 @@ class MockAuthService implements AuthService {
   static const demoPassword = '123456';
   static const adminEmail = 'admin@courtly.vn';
   static const adminPassword = 'Admin@123';
+
+  /// Chế độ mock không gửi email thật: mã OTP luôn là 123456.
+  static const otpCode = '123456';
 
   static const _tokenLifetime = Duration(hours: 1);
 
@@ -95,11 +105,34 @@ class MockAuthService implements AuthService {
   }
 
   @override
+  bool get requiresSignupOtp => true;
+
+  @override
+  Future<OtpSent> sendRegisterOtp(String email) async {
+    await Future<void>.delayed(latency);
+    final normalized = email.trim().toLowerCase();
+    if (_accounts.containsKey(normalized)) {
+      throw const AuthException('Email này đã được đăng ký.', statusCode: 409);
+    }
+    return const OtpSent(
+      message: 'Chế độ demo: không gửi email thật, mã OTP là $otpCode',
+      expiresIn: 300,
+      resendAfter: 30,
+    );
+  }
+
+  @override
   Future<AuthSession> signup(SignupRequest request) async {
     await Future<void>.delayed(latency);
     final email = request.email.trim().toLowerCase();
     if (_accounts.containsKey(email)) {
       throw const AuthException('Email này đã được đăng ký.', statusCode: 409);
+    }
+    if (request.otp != otpCode) {
+      throw const AuthException(
+        'Mã OTP không đúng, vui lòng kiểm tra lại.',
+        statusCode: 400,
+      );
     }
     final user = AppUser(
       id: 'U${DateTime.now().millisecondsSinceEpoch}',
@@ -232,6 +265,14 @@ class DummyJsonAuthService with _HttpJson implements AuthService {
     );
   }
 
+  @override
+  bool get requiresSignupOtp => false;
+
+  @override
+  Future<OtpSent> sendRegisterOtp(String email) async => throw const AuthException(
+    'Chế độ DummyJSON không hỗ trợ xác minh OTP.',
+  );
+
   /// DummyJSON không lưu user mới: /users/add chỉ trả về bản giả lập,
   /// nên ta tạo phiên cục bộ (không có refresh token) để demo luồng đăng ký.
   @override
@@ -298,11 +339,12 @@ class SpringAuthService with _HttpJson implements AuthService {
 
   Uri _uri(String path) => Uri.parse('$_apiBaseUrl$path');
 
-  /// Cần backend seed sẵn tài khoản này.
+  /// Tài khoản khách do DevDataSeeder của backend tạo sẵn (badminton_backend).
+  /// Quản trị viên seed sẵn: admin@courtly.vn / 123456.
   @override
   LoginRequest get demoAccount => const LoginRequest(
-    identifier: MockAuthService.demoEmail,
-    password: MockAuthService.demoPassword,
+    identifier: 'customer@courtly.vn',
+    password: '123456',
   );
 
   @override
@@ -314,6 +356,20 @@ class SpringAuthService with _HttpJson implements AuthService {
     return AuthSession.fromAuthResponse(decodeOrThrow(response));
   }
 
+  @override
+  bool get requiresSignupOtp => true;
+
+  /// Bước 1: backend gửi mã 6 số qua Gmail. 409 nếu email đã dùng,
+  /// 429 nếu gửi quá nhanh/quá nhiều, 503 nếu backend chưa cấu hình mail.
+  @override
+  Future<OtpSent> sendRegisterOtp(String email) async {
+    final response = await postJson(_uri('/auth/register/send-otp'), {
+      'email': email.trim(),
+    });
+    return OtpSent.fromJson(decodeOrThrow(response));
+  }
+
+  /// Bước 2: body gồm cả `otp` (xem [SignupRequest.toJson]).
   @override
   Future<AuthSession> signup(SignupRequest request) async {
     final response = await postJson(_uri('/auth/register'), request.toJson());

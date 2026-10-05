@@ -10,6 +10,7 @@ import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/validators.dart';
 import '../widgets/common_widgets.dart';
+import 'otp_verify_screen.dart';
 
 /// Màn đăng nhập/đăng ký. Đăng nhập thành công thì AuthManager báo trạng thái
 /// mới và main.dart tự chuyển màn, nên màn này không tự điều hướng.
@@ -227,7 +228,11 @@ class _AuthScreenState extends State<AuthScreen> {
                                       ),
                                     )
                                   : Text(
-                                      _isLogin ? 'Đăng nhập' : 'Tạo tài khoản',
+                                      _isLogin
+                                          ? 'Đăng nhập'
+                                          : (_auth.requiresSignupOtp
+                                                ? 'Gửi mã xác minh'
+                                                : 'Tạo tài khoản'),
                                     ),
                             ),
                           ],
@@ -338,17 +343,42 @@ class _AuthScreenState extends State<AuthScreen> {
       );
     } else {
       final phone = _phoneController.text.trim();
-      await _run(
-        () => _auth.signup(
-          SignupRequest(
-            fullName: _nameController.text.trim(),
-            email: identifier,
-            phone: phone.isEmpty ? null : Validators.normalizePhone(phone),
-            password: _passwordController.text,
-          ),
-        ),
+      final request = SignupRequest(
+        fullName: _nameController.text.trim(),
+        email: identifier,
+        phone: phone.isEmpty ? null : Validators.normalizePhone(phone),
+        password: _passwordController.text,
       );
+      if (_auth.requiresSignupOtp) {
+        await _startOtpFlow(request);
+      } else {
+        await _run(() => _auth.signup(request));
+      }
     }
+  }
+
+  /// Đăng ký bước 1: gửi OTP tới email rồi mở màn nhập mã. Tài khoản chỉ được
+  /// tạo ở bước 2 (OtpVerifyScreen) khi mã đúng.
+  Future<void> _startOtpFlow(SignupRequest request) async {
+    FocusScope.of(context).unfocus();
+    setState(() => _loading = true);
+    OtpSent? sent;
+    try {
+      sent = await _auth.sendRegisterOtp(request.email);
+    } on AuthException catch (error) {
+      _showMessage(error.message);
+    } catch (_) {
+      _showMessage('Đã có lỗi xảy ra, vui lòng thử lại.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+    if (sent == null || !mounted) return;
+    // Đăng ký thành công thì main.dart tự đóng màn OTP và chuyển sang Home.
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => OtpVerifyScreen(request: request, initialOtp: sent!),
+      ),
+    );
   }
 
   void _loginWithGoogle() {

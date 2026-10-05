@@ -23,7 +23,15 @@ enum SessionStorageType {
 
 /// Cấu hình tập trung. Đổi giá trị ở đây rồi hot restart để áp dụng.
 abstract final class AppConfig {
-  static const AuthMode authMode = AuthMode.mock;
+  /// Mặc định là mock. Đổi chế độ không cần sửa code:
+  /// `flutter run --dart-define=AUTH_MODE=spring` (hoặc `dummyjson`).
+  static const String _authModeName = String.fromEnvironment('AUTH_MODE');
+
+  static const AuthMode authMode = _authModeName == 'spring'
+      ? AuthMode.spring
+      : _authModeName == 'dummyjson'
+      ? AuthMode.dummyJson
+      : AuthMode.mock;
 
   static const SessionStorageType sessionStorage = SessionStorageType.secure;
 
@@ -41,8 +49,13 @@ abstract final class AppConfig {
 
   static const String dummyJsonBaseUrl = 'https://dummyjson.com';
 
+  /// Ghi đè địa chỉ backend khi chạy máy thật hoặc deploy:
+  /// `--dart-define=API_BASE_URL=http://192.168.1.10:8080` (không có dấu / ở cuối).
+  static const String _baseUrlOverride = String.fromEnvironment('API_BASE_URL');
+
   /// Android emulator truy cập máy host qua 10.0.2.2; các nền tảng khác dùng localhost.
   static String get baseUrl {
+    if (_baseUrlOverride.isNotEmpty) return _baseUrlOverride;
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       return 'http://10.0.2.2:8080';
     }

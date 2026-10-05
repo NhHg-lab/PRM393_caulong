@@ -14,11 +14,15 @@ void main() {
       expect(Validators.identifier('demo@@courtly.vn'), isNotNull);
     });
 
-    test('validates Vietnamese phone numbers with 9 to 11 digits', () {
+    test('validates Vietnamese phone numbers (10 digits, like the backend)', () {
       expect(Validators.identifier('0912345678'), isNull);
       expect(Validators.identifier('091 234 5678'), isNull);
       expect(Validators.identifier('+84912345678'), isNull);
+      expect(Validators.identifier('091-234-5678'), isNull);
       expect(Validators.identifier('12345678'), isNotNull);
+      expect(Validators.identifier('091234567'), isNotNull); // 9 số
+      expect(Validators.identifier('09123456789'), isNotNull); // 11 số
+      expect(Validators.identifier('1912345678'), isNotNull); // không bắt đầu bằng 0
       expect(Validators.identifier('091234567890'), isNotNull);
       expect(Validators.identifier('abc'), isNotNull);
     });
@@ -44,6 +48,15 @@ void main() {
     expect(Validators.signupPassword('Abcd1234'), isNull);
   });
 
+  test('otp requires exactly 6 digits', () {
+    expect(Validators.otp(''), isNotNull);
+    expect(Validators.otp('12345'), isNotNull);
+    expect(Validators.otp('1234567'), isNotNull);
+    expect(Validators.otp('12a456'), isNotNull);
+    expect(Validators.otp('123456'), isNull);
+    expect(Validators.otp(' 123456 '), isNull);
+  });
+
   test('confirmPassword must match', () {
     expect(Validators.confirmPassword('Abcd1234', 'Abcd1234'), isNull);
     expect(Validators.confirmPassword('Abcd1235', 'Abcd1234'), isNotNull);
@@ -60,6 +73,9 @@ void main() {
   test('optionalPhone allows empty but validates when present', () {
     expect(Validators.optionalPhone(''), isNull);
     expect(Validators.optionalPhone('0912345678'), isNull);
+    expect(Validators.optionalPhone('+84912345678'), isNull);
     expect(Validators.optionalPhone('09'), isNotNull);
+    expect(Validators.optionalPhone('091234567'), isNotNull);
+    expect(Validators.optionalPhone('09123456789'), isNotNull);
   });
 }

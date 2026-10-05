@@ -56,6 +56,7 @@ void main() {
           fullName: 'Trần An',
           email: 'an@courtly.vn',
           password: 'Abcd1234',
+          otp: MockAuthService.otpCode,
         );
         final session = await service.signup(request);
         expect(session.user.fullName, 'Trần An');
@@ -70,6 +71,37 @@ void main() {
         );
       },
     );
+
+    test('signup is rejected without the right OTP, accepted with it', () async {
+      const request = SignupRequest(
+        fullName: 'Lê Bình',
+        email: 'binh@courtly.vn',
+        password: 'Abcd1234',
+      );
+      await expectLater(
+        service.signup(request.copyWith(otp: '000000')),
+        throwsA(
+          isA<AuthException>().having((e) => e.statusCode, 'statusCode', 400),
+        ),
+      );
+      final session = await service.signup(
+        request.copyWith(otp: MockAuthService.otpCode),
+      );
+      expect(session.user.email, 'binh@courtly.vn');
+    });
+
+    test('sendRegisterOtp: new email ok, registered email -> 409', () async {
+      expect(service.requiresSignupOtp, isTrue);
+      final sent = await service.sendRegisterOtp('moi@courtly.vn');
+      expect(sent.resendAfter, greaterThan(0));
+      expect(sent.expiresIn, greaterThan(0));
+      await expectLater(
+        service.sendRegisterOtp(MockAuthService.demoEmail),
+        throwsA(
+          isA<AuthException>().having((e) => e.statusCode, 'statusCode', 409),
+        ),
+      );
+    });
 
     test('refresh issues a new token for a mock refresh token', () async {
       final session = await service.login(service.demoAccount);
@@ -181,6 +213,98 @@ void main() {
 
       await expectLater(api.get('/users/me'), throwsA(isA<AuthException>()));
       expect(manager.status, AuthStatus.unauthenticated);
+    });
+  });
+
+  group('SpringAuthService OTP registration', () {
+    const authJson = {
+      'accessToken': 'access',
+      'refreshToken': 'refresh',
+      'tokenType': 'Bearer',
+      'expiresIn': 1800,
+      'user': {
+        'id': 'u1',
+        'fullName': 'Tran An',
+        'email': 'an@courtly.vn',
+        'phone': null,
+        'role': 'CUSTOMER',
+        'avatarUrl': null,
+        'authProvider': 'LOCAL',
+      },
+    };
+
+    test('send-otp then register with the code in the body', () async {
+      final calls = <String>[];
+      Map<String, dynamic>? sendBody;
+      Map<String, dynamic>? registerBody;
+      final client = MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        if (request.url.path.endsWith('/auth/register/send-otp')) {
+          sendBody = body;
+          return http.Response(
+            jsonEncode({
+              'message': 'Da gui ma OTP toi an@courtly.vn',
+              'expiresIn': 300,
+              'resendAfter': 60,
+            }),
+            200,
+          );
+        }
+        registerBody = body;
+        return http.Response(jsonEncode(authJson), 201);
+      });
+      final service = SpringAuthService(
+        client: client,
+        apiBaseUrl: 'http://test/api',
+      );
+
+      expect(service.requiresSignupOtp, isTrue);
+      final sent = await service.sendRegisterOtp(' an@courtly.vn ');
+      expect(sent.expiresIn, 300);
+      expect(sent.resendAfter, 60);
+      expect(sendBody, {'email': 'an@courtly.vn'});
+
+      final session = await service.signup(
+        const SignupRequest(
+          fullName: 'Tran An',
+          email: 'an@courtly.vn',
+          password: 'Abcd1234',
+          otp: '123456',
+        ),
+      );
+      expect(session.accessToken, 'access');
+      expect(registerBody?['otp'], '123456');
+      expect(registerBody?['email'], 'an@courtly.vn');
+      expect(calls, [
+        'POST /api/auth/register/send-otp',
+        'POST /api/auth/register',
+      ]);
+    });
+
+    test('server errors surface as AuthException with the server message', () async {
+      final client = MockClient(
+        (request) async => http.Response(
+          jsonEncode({
+            'status': 429,
+            'error': 'Too Many Requests',
+            'message': 'Vui long doi 30 giay truoc khi yeu cau ma moi',
+          }),
+          429,
+        ),
+      );
+      final service = SpringAuthService(
+        client: client,
+        apiBaseUrl: 'http://test/api',
+      );
+      await expectLater(
+        service.sendRegisterOtp('an@courtly.vn'),
+        throwsA(
+          isA<AuthException>()
+              .having((e) => e.statusCode, 'statusCode', 429)
+              .having((e) => e.message, 'message', contains('30 giay')),
+        ),
+      );
     });
   });
 

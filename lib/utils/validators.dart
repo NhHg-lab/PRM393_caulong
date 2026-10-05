@@ -4,7 +4,8 @@ abstract final class Validators {
   static final _email = RegExp(
     r'^[\w.+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$',
   );
-  static final _phone = RegExp(r'^\d{9,11}$');
+  // Khớp backend: 0xxxxxxxxx hoặc +84xxxxxxxxx (sau normalizePhone luôn là 10 số, đầu 0).
+  static final _phone = RegExp(r'^0\d{9}$');
   static final _username = RegExp(r'^[A-Za-z][A-Za-z0-9_.]{2,29}$');
 
   /// Email hoặc SĐT Việt Nam. [allowUsername] dùng cho chế độ DummyJSON (emilys).
@@ -17,7 +18,7 @@ abstract final class Validators {
     }
     return _phone.hasMatch(normalizePhone(input))
         ? null
-        : 'Số điện thoại phải gồm 9 đến 11 chữ số';
+        : 'Số điện thoại gồm 10 chữ số, bắt đầu bằng 0 hoặc +84';
   }
 
   static String? email(String? value) {
@@ -32,7 +33,7 @@ abstract final class Validators {
     if (input.isEmpty) return null;
     return _phone.hasMatch(normalizePhone(input))
         ? null
-        : 'Số điện thoại phải gồm 9 đến 11 chữ số';
+        : 'Số điện thoại gồm 10 chữ số, bắt đầu bằng 0 hoặc +84';
   }
 
   /// Bỏ khoảng trắng, dấu chấm, gạch ngang; đổi +84 thành 0.
@@ -58,6 +59,12 @@ abstract final class Validators {
     }
     if (!RegExp(r'\d').hasMatch(value)) return 'Mật khẩu cần ít nhất 1 chữ số';
     return null;
+  }
+
+  static String? otp(String? value) {
+    final input = value?.trim() ?? '';
+    if (input.isEmpty) return 'Vui lòng nhập mã OTP';
+    return RegExp(r'^\d{6}$').hasMatch(input) ? null : 'Mã OTP gồm 6 chữ số';
   }
 
   static String? confirmPassword(String? value, String original) {
