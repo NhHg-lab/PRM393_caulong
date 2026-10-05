@@ -1,5 +1,7 @@
 plugins {
     id("com.android.application")
+    // TODO(FIREBASE): bỏ comment sau khi đã đặt google-services.json vào android/app/
+    // id("com.google.gms.google-services")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }

@@ -250,6 +250,20 @@ class _AuthScreenState extends State<AuthScreen> {
                     ),
                     const SizedBox(height: 18),
                     OutlinedButton.icon(
+                      key: const Key('google-login-button'),
+                      onPressed: _loading ? null : _loginWithGoogle,
+                      icon: const Text(
+                        'G',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.blue,
+                        ),
+                      ),
+                      label: const Text('Đăng nhập với Google'),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
                       key: const Key('demo-login-button'),
                       onPressed: _loading
                           ? null
@@ -335,6 +349,14 @@ class _AuthScreenState extends State<AuthScreen> {
         ),
       );
     }
+  }
+
+  void _loginWithGoogle() {
+    if (!AppConfig.enableGoogleSignIn) {
+      _showMessage('Đăng nhập Google chưa được cấu hình');
+      return;
+    }
+    _run(() => _auth.loginWithGoogle(remember: _remember));
   }
 
   /// Chạy một thao tác xác thực: bật loading, báo lỗi bằng SnackBar.

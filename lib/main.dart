@@ -5,11 +5,14 @@ import 'screens/auth_screen.dart';
 import 'screens/customer_app.dart';
 import 'screens/splash_screen.dart';
 import 'services/auth_manager.dart';
+import 'services/firebase_auth_service.dart';
 import 'services/notification_service.dart';
 import 'theme/app_theme.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Chỉ khởi tạo Firebase khi AppConfig.enableGoogleSignIn = true.
+  await initFirebaseIfEnabled();
   // Không chờ: khởi tạo thông báo chạy song song với Splash.
   NotificationService.instance.initialize();
   runApp(const CourtlyApp());

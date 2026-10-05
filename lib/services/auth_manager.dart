@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/auth_models.dart';
 import 'auth_service.dart';
+import 'firebase_auth_service.dart';
 import 'session_storage.dart';
 
 enum AuthStatus {
@@ -79,6 +80,12 @@ class AuthManager extends ChangeNotifier {
   Future<AppUser> loginDemo({bool remember = true}) =>
       _signIn(() => _service.login(_service.demoAccount), remember);
 
+  /// Google -> Firebase ID token -> backend đổi sang phiên của hệ thống.
+  Future<AppUser> loginWithGoogle({bool remember = true}) => _signIn(() async {
+    final idToken = await FirebaseAuthService.instance.signInWithGoogle();
+    return _service.loginWithGoogleIdToken(idToken);
+  }, remember);
+
   Future<AppUser> signup(SignupRequest request) =>
       _signIn(() => _service.signup(request), true);
 
@@ -104,7 +111,11 @@ class AuthManager extends ChangeNotifier {
     final current = _session;
     _setSession(null);
     await _storage.clear();
-    if (current != null) await _service.logout(current);
+    if (current == null) return;
+    await _service.logout(current);
+    if (current.user.authProvider == 'GOOGLE') {
+      await FirebaseAuthService.instance.signOut();
+    }
   }
 
   Future<AppUser> _signIn(
