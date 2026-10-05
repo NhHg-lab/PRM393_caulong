@@ -1,25 +1,47 @@
 import 'package:flutter/material.dart';
 
+import '../config/app_config.dart';
+import '../models/auth_models.dart';
+import '../services/auth_manager.dart';
+import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/validators.dart';
 import '../widgets/common_widgets.dart';
 
+/// Màn đăng nhập/đăng ký. Đăng nhập thành công thì AuthManager báo trạng thái
+/// mới và main.dart tự chuyển màn, nên màn này không tự điều hướng.
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({
-    super.key,
-    required this.onCustomerLogin,
-    required this.onAdminLogin,
-  });
-  final VoidCallback onCustomerLogin;
-  final VoidCallback onAdminLogin;
+  const AuthScreen({super.key});
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
 }
 
 class _AuthScreenState extends State<AuthScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _identifierController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmController = TextEditingController();
+
   bool _isLogin = true;
   bool _obscure = true;
   bool _remember = true;
+  bool _loading = false;
+
+  AuthManager get _auth => AuthManager.instance;
+  bool get _allowUsername => AppConfig.authMode == AuthMode.dummyJson;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _identifierController.dispose();
+    _phoneController.dispose();
+    _passwordController.dispose();
+    _confirmController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,89 +62,173 @@ class _AuthScreenState extends State<AuthScreen> {
                     const SizedBox(height: 38),
                     _AuthHero(isLogin: _isLogin),
                     const SizedBox(height: 28),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 250),
-                      child: Column(
-                        key: ValueKey(_isLogin),
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (!_isLogin) ...[
-                            const TextField(
+                    Form(
+                      key: _formKey,
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 250),
+                        child: Column(
+                          key: ValueKey(_isLogin),
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (!_isLogin) ...[
+                              TextFormField(
+                                key: const Key('auth-name-field'),
+                                controller: _nameController,
+                                enabled: !_loading,
+                                textCapitalization: TextCapitalization.words,
+                                textInputAction: TextInputAction.next,
+                                validator: Validators.fullName,
+                                decoration: const InputDecoration(
+                                  labelText: 'Họ và tên',
+                                  prefixIcon: Icon(
+                                    Icons.person_outline_rounded,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                            ],
+                            TextFormField(
+                              key: const Key('auth-identifier-field'),
+                              controller: _identifierController,
+                              enabled: !_loading,
+                              keyboardType: TextInputType.emailAddress,
+                              textInputAction: TextInputAction.next,
+                              autocorrect: false,
+                              validator: _isLogin
+                                  ? (value) => Validators.identifier(
+                                      value,
+                                      allowUsername: _allowUsername,
+                                    )
+                                  : Validators.email,
                               decoration: InputDecoration(
-                                labelText: 'Họ và tên',
-                                prefixIcon: Icon(Icons.person_outline_rounded),
+                                labelText: _isLogin
+                                    ? (_allowUsername
+                                          ? 'Tên đăng nhập, email hoặc SĐT'
+                                          : 'Email hoặc số điện thoại')
+                                    : 'Email',
+                                prefixIcon: const Icon(
+                                  Icons.mail_outline_rounded,
+                                ),
                               ),
                             ),
                             const SizedBox(height: 14),
+                            if (!_isLogin) ...[
+                              TextFormField(
+                                key: const Key('auth-phone-field'),
+                                controller: _phoneController,
+                                enabled: !_loading,
+                                keyboardType: TextInputType.phone,
+                                textInputAction: TextInputAction.next,
+                                validator: Validators.optionalPhone,
+                                decoration: const InputDecoration(
+                                  labelText: 'Số điện thoại (không bắt buộc)',
+                                  prefixIcon: Icon(Icons.phone_outlined),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                            ],
+                            TextFormField(
+                              key: const Key('auth-password-field'),
+                              controller: _passwordController,
+                              enabled: !_loading,
+                              obscureText: _obscure,
+                              textInputAction: _isLogin
+                                  ? TextInputAction.done
+                                  : TextInputAction.next,
+                              onFieldSubmitted: (_) {
+                                if (_isLogin) _submit();
+                              },
+                              validator: _isLogin
+                                  ? Validators.loginPassword
+                                  : Validators.signupPassword,
+                              decoration: InputDecoration(
+                                labelText: 'Mật khẩu',
+                                prefixIcon: const Icon(
+                                  Icons.lock_outline_rounded,
+                                ),
+                                suffixIcon: IconButton(
+                                  onPressed: () =>
+                                      setState(() => _obscure = !_obscure),
+                                  icon: Icon(
+                                    _obscure
+                                        ? Icons.visibility_outlined
+                                        : Icons.visibility_off_outlined,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            if (!_isLogin) ...[
+                              const SizedBox(height: 14),
+                              TextFormField(
+                                key: const Key('auth-confirm-field'),
+                                controller: _confirmController,
+                                enabled: !_loading,
+                                obscureText: _obscure,
+                                textInputAction: TextInputAction.done,
+                                onFieldSubmitted: (_) => _submit(),
+                                validator: (value) =>
+                                    Validators.confirmPassword(
+                                      value,
+                                      _passwordController.text,
+                                    ),
+                                decoration: const InputDecoration(
+                                  labelText: 'Xác nhận mật khẩu',
+                                  prefixIcon: Icon(Icons.lock_reset_rounded),
+                                ),
+                              ),
+                            ],
+                            if (_isLogin)
+                              Row(
+                                children: [
+                                  Checkbox(
+                                    value: _remember,
+                                    activeColor: AppColors.navy,
+                                    onChanged: _loading
+                                        ? null
+                                        : (value) => setState(
+                                            () => _remember = value ?? false,
+                                          ),
+                                  ),
+                                  const Text(
+                                    'Ghi nhớ đăng nhập',
+                                    style: TextStyle(fontSize: 13),
+                                  ),
+                                  const Spacer(),
+                                  TextButton(
+                                    onPressed: () =>
+                                        _showMessage('Tính năng sắp ra mắt'),
+                                    child: const Text('Quên mật khẩu?'),
+                                  ),
+                                ],
+                              )
+                            else
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 14),
+                                child: Text(
+                                  'Bằng việc đăng ký, bạn đồng ý với Điều khoản sử dụng và Chính sách bảo mật.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.muted,
+                                  ),
+                                ),
+                              ),
+                            FilledButton(
+                              key: const Key('auth-primary-button'),
+                              onPressed: _loading ? null : _submit,
+                              child: _loading
+                                  ? const SizedBox.square(
+                                      dimension: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        color: AppColors.navy,
+                                      ),
+                                    )
+                                  : Text(
+                                      _isLogin ? 'Đăng nhập' : 'Tạo tài khoản',
+                                    ),
+                            ),
                           ],
-                          const TextField(
-                            keyboardType: TextInputType.emailAddress,
-                            decoration: InputDecoration(
-                              labelText: 'Email hoặc số điện thoại',
-                              prefixIcon: Icon(Icons.mail_outline_rounded),
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          TextField(
-                            obscureText: _obscure,
-                            decoration: InputDecoration(
-                              labelText: 'Mật khẩu',
-                              prefixIcon: const Icon(
-                                Icons.lock_outline_rounded,
-                              ),
-                              suffixIcon: IconButton(
-                                onPressed: () =>
-                                    setState(() => _obscure = !_obscure),
-                                icon: Icon(
-                                  _obscure
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (_isLogin)
-                            Row(
-                              children: [
-                                Checkbox(
-                                  value: _remember,
-                                  activeColor: AppColors.navy,
-                                  onChanged: (value) => setState(
-                                    () => _remember = value ?? false,
-                                  ),
-                                ),
-                                const Text(
-                                  'Ghi nhớ đăng nhập',
-                                  style: TextStyle(fontSize: 13),
-                                ),
-                                const Spacer(),
-                                TextButton(
-                                  onPressed: () => _showMessage(
-                                    'Liên kết đặt lại mật khẩu đã được gửi.',
-                                  ),
-                                  child: const Text('Quên mật khẩu?'),
-                                ),
-                              ],
-                            )
-                          else
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 14),
-                              child: Text(
-                                'Bằng việc đăng ký, bạn đồng ý với Điều khoản sử dụng và Chính sách bảo mật.',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.muted,
-                                ),
-                              ),
-                            ),
-                          FilledButton(
-                            key: const Key('auth-primary-button'),
-                            onPressed: widget.onCustomerLogin,
-                            child: Text(
-                              _isLogin ? 'Đăng nhập' : 'Tạo tài khoản',
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -141,7 +247,12 @@ class _AuthScreenState extends State<AuthScreen> {
                     ),
                     const SizedBox(height: 18),
                     OutlinedButton.icon(
-                      onPressed: widget.onCustomerLogin,
+                      key: const Key('demo-login-button'),
+                      onPressed: _loading
+                          ? null
+                          : () => _run(
+                              () => _auth.loginDemo(remember: _remember),
+                            ),
                       icon: const Icon(Icons.travel_explore_rounded),
                       label: const Text('Khám phá với tài khoản demo'),
                     ),
@@ -154,20 +265,24 @@ class _AuthScreenState extends State<AuthScreen> {
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
                         TextButton(
-                          onPressed: () => setState(() => _isLogin = !_isLogin),
+                          onPressed: _loading ? null : _toggleMode,
                           child: Text(_isLogin ? 'Đăng ký ngay' : 'Đăng nhập'),
                         ),
                       ],
                     ),
-                    TextButton.icon(
-                      key: const Key('admin-login-button'),
-                      onPressed: widget.onAdminLogin,
-                      icon: const Icon(
-                        Icons.admin_panel_settings_outlined,
-                        size: 19,
+                    // Chỉ chế độ mock có sẵn tài khoản quản trị: bấm để điền sẵn form.
+                    if (AppConfig.authMode == AuthMode.mock)
+                      TextButton.icon(
+                        key: const Key('admin-login-button'),
+                        onPressed: _loading ? null : _fillAdminAccount,
+                        icon: const Icon(
+                          Icons.admin_panel_settings_outlined,
+                          size: 19,
+                        ),
+                        label: const Text(
+                          'Quản trị viên demo: ${MockAuthService.adminEmail}',
+                        ),
                       ),
-                      label: const Text('Vào trang quản trị'),
-                    ),
                   ],
                 ),
               ),
@@ -178,7 +293,64 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
+  void _toggleMode() {
+    _formKey.currentState?.reset();
+    _passwordController.clear();
+    _confirmController.clear();
+    setState(() => _isLogin = !_isLogin);
+  }
+
+  void _fillAdminAccount() {
+    _identifierController.text = MockAuthService.adminEmail;
+    _passwordController.text = MockAuthService.adminPassword;
+    if (!_isLogin) setState(() => _isLogin = true);
+  }
+
+  Future<void> _submit() async {
+    if (_loading || !(_formKey.currentState?.validate() ?? false)) return;
+    final identifier = _identifierController.text.trim();
+    if (_isLogin) {
+      await _run(
+        () => _auth.login(
+          identifier.contains('@') || _allowUsername
+              ? identifier
+              : Validators.normalizePhone(identifier),
+          _passwordController.text,
+          remember: _remember,
+        ),
+      );
+    } else {
+      final phone = _phoneController.text.trim();
+      await _run(
+        () => _auth.signup(
+          SignupRequest(
+            fullName: _nameController.text.trim(),
+            email: identifier,
+            phone: phone.isEmpty ? null : Validators.normalizePhone(phone),
+            password: _passwordController.text,
+          ),
+        ),
+      );
+    }
+  }
+
+  /// Chạy một thao tác xác thực: bật loading, báo lỗi bằng SnackBar.
+  Future<void> _run(Future<AppUser> Function() action) async {
+    FocusScope.of(context).unfocus();
+    setState(() => _loading = true);
+    try {
+      await action();
+    } on AuthException catch (error) {
+      _showMessage(error.message);
+    } catch (_) {
+      _showMessage('Đã có lỗi xảy ra, vui lòng thử lại.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   void _showMessage(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
   }
