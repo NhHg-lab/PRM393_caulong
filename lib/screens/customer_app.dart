@@ -74,7 +74,15 @@ class _CustomerAppState extends State<CustomerApp> {
       ),
     ];
     return Scaffold(
-      body: IndexedStack(index: _tab, children: pages),
+      // IndexedStack giữ mọi tab trong cây; tắt Hero ở tab ẩn để không trùng tag
+      // (vd. cùng một sân vừa ở Trang chủ vừa ở Yêu thích).
+      body: IndexedStack(
+        index: _tab,
+        children: [
+          for (var i = 0; i < pages.length; i++)
+            HeroMode(enabled: i == _tab, child: pages[i]),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (index) => setState(() => _tab = index),
