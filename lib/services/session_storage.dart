@@ -104,10 +104,7 @@ class PrefsSessionStorage implements SessionStorage {
     } else {
       await prefs.remove(_Keys.refreshToken);
     }
-    await prefs.setString(
-      _Keys.expiresAt,
-      session.expiresAt.toIso8601String(),
-    );
+    await prefs.setString(_Keys.expiresAt, session.expiresAt.toIso8601String());
     await prefs.setString(_Keys.user, jsonEncode(session.user.toJson()));
   }
 

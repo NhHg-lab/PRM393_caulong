@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../config/app_config.dart';
 import '../models/auth_models.dart';
 import '../services/auth_manager.dart';
 import '../services/auth_service.dart';
+import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/validators.dart';
 import '../widgets/common_widgets.dart';
@@ -339,7 +342,9 @@ class _AuthScreenState extends State<AuthScreen> {
     FocusScope.of(context).unfocus();
     setState(() => _loading = true);
     try {
-      await action();
+      final user = await action();
+      // Thông báo nằm ngoài AuthService/AuthManager; lỗi thông báo không ảnh hưởng đăng nhập.
+      unawaited(NotificationService.instance.showLoginSuccess(user.fullName));
     } on AuthException catch (error) {
       _showMessage(error.message);
     } catch (_) {

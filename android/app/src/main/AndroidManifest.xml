@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Gọi API backend / DummyJSON -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Thông báo cục bộ trên Android 13+ (flutter_local_notifications) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="Courtly"
         android:name="${applicationName}"

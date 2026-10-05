@@ -5,10 +5,13 @@ import 'screens/auth_screen.dart';
 import 'screens/customer_app.dart';
 import 'screens/splash_screen.dart';
 import 'services/auth_manager.dart';
+import 'services/notification_service.dart';
 import 'theme/app_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // Không chờ: khởi tạo thông báo chạy song song với Splash.
+  NotificationService.instance.initialize();
   runApp(const CourtlyApp());
 }
 

@@ -83,9 +83,8 @@ class AuthManager extends ChangeNotifier {
       _signIn(() => _service.signup(request), true);
 
   /// Dùng bởi ApiClient khi gặp 401. Nhiều request cùng lúc chỉ refresh một lần.
-  Future<bool> refreshSession() => _refreshing ??= _doRefresh().whenComplete(
-    () => _refreshing = null,
-  );
+  Future<bool> refreshSession() =>
+      _refreshing ??= _doRefresh().whenComplete(() => _refreshing = null);
 
   Future<bool> _doRefresh() async {
     final current = _session;
