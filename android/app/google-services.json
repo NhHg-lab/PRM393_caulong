@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "813885294318",
+    "project_id": "caulong-9b67e",
+    "storage_bucket": "caulong-9b67e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:813885294318:android:5be04a37a34f932cf955ff",
+        "android_client_info": {
+          "package_name": "vn.courtly.courtly"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "813885294318-7oek7gubv3oth80a6k1srn5mvrakgstm.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "vn.courtly.courtly",
+            "certificate_hash": "a5a59c3913723c8ef3f487cb7209728847073268"
+          }
+        },
+        {
+          "client_id": "813885294318-71q2upnh1pp814amjlsc6ok48k8mao52.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAJPjjxxydA_SUAU9E9yP8O3oWKAo_t0b0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "813885294318-71q2upnh1pp814amjlsc6ok48k8mao52.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

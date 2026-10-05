@@ -5,11 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   testWidgets('customer can enter the demo experience', (tester) async {
     await tester.pumpWidget(const CourtlyApp());
+    await tester.pumpAndSettle();
 
     expect(find.text('Sân xịn đang\nchờ bạn.'), findsOneWidget);
     expect(find.text('Đăng nhập'), findsWidgets);
 
-    await tester.tap(find.byKey(const Key('auth-primary-button')));
+    await tester.ensureVisible(find.byKey(const Key('demo-customer-button')));
+    await tester.tap(find.byKey(const Key('demo-customer-button')));
     await tester.pumpAndSettle();
 
     expect(find.text('Sân gần bạn'), findsOneWidget);
@@ -18,6 +20,7 @@ void main() {
 
   testWidgets('admin dashboard is accessible from sign in', (tester) async {
     await tester.pumpWidget(const CourtlyApp());
+    await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.byKey(const Key('admin-login-button')));
     await tester.tap(find.byKey(const Key('admin-login-button')));
