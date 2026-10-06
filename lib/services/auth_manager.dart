@@ -1,8 +1,9 @@
 import 'package:flutter/foundation.dart';
 
+import '../config/app_config.dart';
 import '../models/auth_models.dart';
 import 'auth_service.dart';
-import 'firebase_auth_service.dart';
+import 'google_token_provider.dart';
 import 'session_storage.dart';
 
 enum AuthStatus {
@@ -35,6 +36,9 @@ class AuthManager extends ChangeNotifier {
   bool _persist = true;
   Future<bool>? _refreshing;
 
+  /// Nguồn token Google của lần đăng nhập Google gần nhất (để đăng xuất đúng chỗ).
+  GoogleTokenProvider? _googleProvider;
+
   AuthStatus get status => _status;
   AuthSession? get session => _session;
   AppUser? get currentUser => _session?.user;
@@ -42,7 +46,10 @@ class AuthManager extends ChangeNotifier {
   bool get isAdmin => isAuthenticated && (currentUser?.isAdmin ?? false);
   LoginRequest get demoAccount => _service.demoAccount;
 
-  /// Gọi một lần lúc mở app. Phiên hết hạn sẽ được thử refresh.
+  /// Gọi một lần lúc mở app. Phiên hết hạn sẽ được thử refresh, sau đó hồ sơ
+  /// được đồng bộ với server (GET /users/me). Trạng thái chỉ đổi khỏi
+  /// `unknown` khi đã xong cả hai bước, nên Splash không nhấp nháy sang Home
+  /// rồi lại về Login.
   Future<void> restoreSession() async {
     AuthSession? stored;
     try {
@@ -55,14 +62,42 @@ class AuthManager extends ChangeNotifier {
       return;
     }
     _persist = true;
-    if (!stored.isExpired) {
-      _setSession(stored);
-      return;
+    var session = stored;
+    if (session.isExpired) {
+      final renewed = await _renew(session);
+      if (renewed == null) {
+        await _storage.clear();
+        _setSession(null);
+        return;
+      }
+      session = renewed;
     }
-    _session = stored;
-    if (!await refreshSession()) {
+    final synced = await _syncProfile(session);
+    if (synced == null) {
       await _storage.clear();
       _setSession(null);
+      return;
+    }
+    _setSession(synced);
+  }
+
+  /// Lấy hồ sơ/role mới nhất từ server và lưu lại.
+  /// - 401/403 (tài khoản bị khoá/xoá, phiên bị thu hồi): trả về null để đăng xuất.
+  /// - Lỗi mạng/timeout: giữ phiên đã lưu, không bắt đăng nhập lại khi offline.
+  Future<AuthSession?> _syncProfile(AuthSession session) async {
+    try {
+      final user = await _service
+          .fetchProfile(session)
+          .timeout(AppConfig.profileSyncTimeout);
+      if (user == null) return session;
+      final updated = session.copyWith(user: user);
+      await _storage.save(updated);
+      return updated;
+    } on AuthException catch (error) {
+      if (error.statusCode == 401 || error.statusCode == 403) return null;
+      return session;
+    } catch (_) {
+      return session;
     }
   }
 
@@ -81,9 +116,16 @@ class AuthManager extends ChangeNotifier {
       _signIn(() => _service.login(_service.demoAccount), remember);
 
   /// Google -> Firebase ID token -> backend đổi sang phiên của hệ thống.
-  Future<AppUser> loginWithGoogle({bool remember = true}) => _signIn(() async {
-    final idToken = await FirebaseAuthService.instance.signInWithGoogle();
-    return _service.loginWithGoogleIdToken(idToken);
+  /// [provider] mặc định là Firebase thật; chế độ demo truyền
+  /// MockGoogleTokenProvider với tài khoản giả đã chọn.
+  Future<AppUser> loginWithGoogle({
+    bool remember = true,
+    GoogleTokenProvider provider = const FirebaseGoogleTokenProvider(),
+  }) => _signIn(() async {
+    final idToken = await provider.obtainIdToken();
+    final session = await _service.loginWithGoogleIdToken(idToken);
+    _googleProvider = provider;
+    return session;
   }, remember);
 
   /// Đăng ký có bước xác minh OTP qua email hay không (tuỳ AuthMode).
@@ -96,6 +138,20 @@ class AuthManager extends ChangeNotifier {
   Future<AppUser> signup(SignupRequest request) =>
       _signIn(() => _service.signup(request), true);
 
+  /// Chế độ hiện tại có hỗ trợ quên mật khẩu bằng OTP email hay không.
+  bool get supportsPasswordReset => _service.supportsPasswordReset;
+
+  Future<OtpSent> sendPasswordResetOtp(String email) =>
+      _service.sendPasswordResetOtp(email);
+
+  /// Không đăng nhập sẵn: người dùng phải đăng nhập lại bằng mật khẩu mới.
+  Future<void> resetPassword({
+    required String email,
+    required String otp,
+    required String newPassword,
+  }) =>
+      _service.resetPassword(email: email, otp: otp, newPassword: newPassword);
+
   /// Dùng bởi ApiClient khi gặp 401. Nhiều request cùng lúc chỉ refresh một lần.
   Future<bool> refreshSession() =>
       _refreshing ??= _doRefresh().whenComplete(() => _refreshing = null);
@@ -103,13 +159,20 @@ class AuthManager extends ChangeNotifier {
   Future<bool> _doRefresh() async {
     final current = _session;
     if (current == null) return false;
+    final renewed = await _renew(current);
+    if (renewed == null) return false;
+    _setSession(renewed);
+    return true;
+  }
+
+  /// Đổi refresh token lấy phiên mới và lưu lại. Không đổi trạng thái/notify.
+  Future<AuthSession?> _renew(AuthSession current) async {
     try {
       final renewed = await _service.refresh(current);
       if (_persist) await _storage.save(renewed);
-      _setSession(renewed);
-      return true;
+      return renewed;
     } catch (_) {
-      return false;
+      return null;
     }
   }
 
@@ -121,7 +184,15 @@ class AuthManager extends ChangeNotifier {
     if (current == null) return;
     await _service.logout(current);
     if (current.user.authProvider == 'GOOGLE') {
-      await FirebaseAuthService.instance.signOut();
+      // Phiên khôi phục sau khi mở lại app không biết provider: suy ra từ cấu hình.
+      // Tài khoản Google giả không bao giờ gọi Firebase.
+      final provider =
+          _googleProvider ??
+          (AppConfig.googleMode == GoogleMode.firebase
+              ? const FirebaseGoogleTokenProvider()
+              : null);
+      _googleProvider = null;
+      await provider?.signOut();
     }
   }
 

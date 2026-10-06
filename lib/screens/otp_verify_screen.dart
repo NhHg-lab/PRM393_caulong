@@ -1,13 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../models/auth_models.dart';
 import '../services/auth_manager.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/validators.dart';
+import '../widgets/otp_widgets.dart';
 
 /// Bước 2 của đăng ký: nhập mã OTP 6 số đã gửi qua email.
 ///
@@ -31,13 +31,8 @@ class OtpVerifyScreen extends StatefulWidget {
   State<OtpVerifyScreen> createState() => _OtpVerifyScreenState();
 }
 
-class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
+class _OtpVerifyScreenState extends State<OtpVerifyScreen> with OtpCountdown {
   final _codeController = TextEditingController();
-  Timer? _timer;
-
-  late String _message;
-  late int _expiresIn;
-  late int _resendIn;
 
   bool _verifying = false;
   bool _resending = false;
@@ -48,37 +43,14 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   @override
   void initState() {
     super.initState();
-    _applySent(widget.initialOtp);
-    _startTimer();
+    applyOtpSent(widget.initialOtp);
+    startOtpCountdown();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
     _codeController.dispose();
     super.dispose();
-  }
-
-  void _applySent(OtpSent sent) {
-    _message = sent.message;
-    _expiresIn = sent.expiresIn;
-    _resendIn = sent.resendAfter;
-  }
-
-  /// Đếm ngược mỗi giây; tự dừng khi cả hai bộ đếm về 0.
-  void _startTimer() {
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) return;
-      if (_expiresIn == 0 && _resendIn == 0) {
-        timer.cancel();
-        return;
-      }
-      setState(() {
-        if (_expiresIn > 0) _expiresIn--;
-        if (_resendIn > 0) _resendIn--;
-      });
-    });
   }
 
   Future<void> _verify() async {
@@ -110,7 +82,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   }
 
   Future<void> _resend() async {
-    if (_resending || _resendIn > 0) return;
+    if (_resending || resendIn > 0) return;
     setState(() {
       _resending = true;
       _error = null;
@@ -119,10 +91,10 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
       final sent = await _auth.sendRegisterOtp(widget.request.email);
       if (!mounted) return;
       setState(() {
-        _applySent(sent);
+        applyOtpSent(sent);
         _codeController.clear();
       });
-      _startTimer();
+      startOtpCountdown();
     } on AuthException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } catch (_) {
@@ -134,16 +106,9 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
     }
   }
 
-  static String _mmss(int seconds) {
-    final minutes = (seconds ~/ 60).toString().padLeft(2, '0');
-    final rest = (seconds % 60).toString().padLeft(2, '0');
-    return '$minutes:$rest';
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final expired = _expiresIn == 0;
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
@@ -184,54 +149,29 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
               ),
               const SizedBox(height: 10),
               Text(
-                _message,
+                otpMessage,
                 key: const Key('otp-message'),
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: 28),
-              TextField(
+              OtpCodeField(
                 key: const Key('otp-code-field'),
                 controller: _codeController,
                 enabled: !_verifying,
                 autofocus: true,
-                keyboardType: TextInputType.number,
-                textAlign: TextAlign.center,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(6),
-                ],
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 10,
-                ),
+                errorText: _error,
                 onChanged: (_) {
                   if (_error != null) setState(() => _error = null);
                 },
                 onSubmitted: (_) => _verify(),
-                decoration: InputDecoration(
-                  hintText: '000000',
-                  errorText: _error,
-                  errorMaxLines: 3,
-                ),
               ),
               const SizedBox(height: 12),
-              Text(
-                expired
-                    ? 'Mã đã hết hạn, hãy gửi lại mã mới.'
-                    : 'Mã còn hiệu lực trong ${_mmss(_expiresIn)}',
-                key: const Key('otp-expiry'),
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: expired ? AppColors.danger : AppColors.muted,
-                ),
-              ),
+              OtpExpiryText(key: const Key('otp-expiry'), expiresIn: expiresIn),
               const SizedBox(height: 22),
               FilledButton(
                 key: const Key('otp-confirm-button'),
-                onPressed: _verifying || expired ? null : _verify,
+                onPressed: _verifying || otpExpired ? null : _verify,
                 child: _verifying
                     ? const SizedBox.square(
                         dimension: 22,
@@ -243,16 +183,10 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                     : const Text('Xác nhận và tạo tài khoản'),
               ),
               const SizedBox(height: 8),
-              TextButton(
+              OtpResendButton(
                 key: const Key('otp-resend-button'),
-                onPressed: (_resendIn > 0 || _resending || _verifying)
-                    ? null
-                    : _resend,
-                child: Text(
-                  _resendIn > 0
-                      ? 'Gửi lại mã sau ${_resendIn}s'
-                      : 'Gửi lại mã',
-                ),
+                resendIn: resendIn,
+                onPressed: (_resending || _verifying) ? null : _resend,
               ),
             ],
           ),

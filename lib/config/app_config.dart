@@ -21,6 +21,19 @@ enum SessionStorageType {
   prefs,
 }
 
+/// Cách lấy Google/Firebase ID token khi bấm "Đăng nhập với Google".
+enum GoogleMode {
+  /// Google Sign-In + Firebase Auth thật (cần google-services.json).
+  firebase,
+
+  /// Chọn tài khoản Google giả, token dạng `mock:<email>:<tên>`.
+  /// Chỉ dành cho demo/lab, không bao giờ bật trong bản release.
+  mock,
+
+  /// Tắt đăng nhập Google.
+  off,
+}
+
 /// Cấu hình tập trung. Đổi giá trị ở đây rồi hot restart để áp dụng.
 abstract final class AppConfig {
   /// Mặc định là mock. Đổi chế độ không cần sửa code:
@@ -38,12 +51,42 @@ abstract final class AppConfig {
   /// Chỉ bật khi đã cấu hình Firebase (xem docs/FIREBASE_SETUP.md).
   static const bool enableGoogleSignIn = true;
 
+  /// `--dart-define=GOOGLE_MODE=firebase|mock|off`. Bỏ trống thì giữ hành vi
+  /// cũ: `firebase` khi [enableGoogleSignIn], ngược lại `off`.
+  static const String _googleModeName = String.fromEnvironment('GOOGLE_MODE');
+
+  /// dart-define là hằng lúc build, nên test ghi đè chế độ qua biến này.
+  @visibleForTesting
+  static GoogleMode? googleModeOverride;
+
+  static GoogleMode get googleMode {
+    final mode = googleModeOverride ?? _configuredGoogleMode;
+    // Bản release không bao giờ dùng tài khoản Google giả.
+    if (kReleaseMode && mode == GoogleMode.mock) return _defaultGoogleMode;
+    return mode;
+  }
+
+  static GoogleMode get _configuredGoogleMode => switch (_googleModeName) {
+    'firebase' => GoogleMode.firebase,
+    'mock' => GoogleMode.mock,
+    'off' => GoogleMode.off,
+    _ => _defaultGoogleMode,
+  };
+
+  static const GoogleMode _defaultGoogleMode = enableGoogleSignIn
+      ? GoogleMode.firebase
+      : GoogleMode.off;
+
   // Web client ID (client_type 3 trong google-services.json), cần để
   // Google Sign-In trên Android trả về idToken.
   static const String googleServerClientId =
       '813885294318-71q2upnh1pp814amjlsc6ok48k8mao52.apps.googleusercontent.com';
 
   static const Duration requestTimeout = Duration(seconds: 15);
+
+  /// Thời gian tối đa chờ GET /users/me lúc khôi phục phiên, để Splash không
+  /// treo lâu khi mạng chậm (quá hạn thì giữ hồ sơ đã lưu).
+  static const Duration profileSyncTimeout = Duration(seconds: 5);
 
   /// Thời gian giả lập độ trễ mạng của MockAuthService.
   static const Duration mockLatency = Duration(seconds: 2);

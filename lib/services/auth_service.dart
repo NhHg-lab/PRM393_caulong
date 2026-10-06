@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
 import '../models/auth_models.dart';
+import 'google_token_provider.dart';
 
 /// Hợp đồng chung cho mọi nguồn xác thực. UI không gọi trực tiếp lớp này,
 /// mà đi qua AuthManager.
@@ -20,11 +21,31 @@ abstract class AuthService {
   /// Bước 1 của đăng ký: gửi mã OTP 6 số tới [email].
   Future<OtpSent> sendRegisterOtp(String email);
 
+  /// true nếu chế độ này hỗ trợ quên mật khẩu bằng OTP email.
+  bool get supportsPasswordReset;
+
+  /// Quên mật khẩu bước 1: gửi OTP tới [email]. Phản hồi luôn giống nhau dù
+  /// email có tồn tại hay không, để không lộ email nào đã đăng ký.
+  Future<OtpSent> sendPasswordResetOtp(String email);
+
+  /// Quên mật khẩu bước 2: đổi mật khẩu bằng mã OTP. Không trả về phiên,
+  /// người dùng phải đăng nhập lại bằng mật khẩu mới.
+  Future<void> resetPassword({
+    required String email,
+    required String otp,
+    required String newPassword,
+  });
+
   /// Đổi Firebase ID token lấy phiên đăng nhập của hệ thống.
   Future<AuthSession> loginWithGoogleIdToken(String idToken);
 
   /// Lấy access token mới. Ném [AuthException] nếu refresh token không còn hợp lệ.
   Future<AuthSession> refresh(AuthSession current);
+
+  /// Hồ sơ mới nhất của người dùng (GET /users/me). Trả về null nếu chế độ
+  /// này không có API hồ sơ. 401/403 ném [AuthException] có statusCode,
+  /// lỗi mạng ném [AuthException.network] / [AuthException.timeout].
+  Future<AppUser?> fetchProfile(AuthSession session);
 
   /// Thu hồi phiên phía server (nếu có). Không ném lỗi.
   Future<void> logout(AuthSession session);
@@ -145,8 +166,57 @@ class MockAuthService implements AuthService {
   }
 
   @override
+  bool get supportsPasswordReset => true;
+
+  @override
+  Future<OtpSent> sendPasswordResetOtp(String email) async {
+    await Future<void>.delayed(latency);
+    // Cố ý không kiểm tra email có tồn tại: phản hồi giống hệt nhau.
+    return const OtpSent(
+      message:
+          'Nếu email đã được đăng ký, mã OTP sẽ được gửi tới email đó. '
+          'Chế độ demo: mã OTP là $otpCode',
+      expiresIn: 300,
+      resendAfter: 30,
+    );
+  }
+
+  @override
+  Future<void> resetPassword({
+    required String email,
+    required String otp,
+    required String newPassword,
+  }) async {
+    await Future<void>.delayed(latency);
+    final normalized = email.trim().toLowerCase();
+    final account = _accounts[normalized];
+    // Mã sai và email lạ dùng chung một thông báo để không lộ email tồn tại.
+    if (account == null || otp != otpCode) {
+      throw const AuthException(
+        'Mã OTP không hợp lệ hoặc đã hết hạn.',
+        statusCode: 400,
+      );
+    }
+    _accounts[normalized] = (newPassword, account.$2);
+  }
+
+  /// Token giả `mock:<email>:<tên>` (GoogleMode.mock) cho ra đúng user đó;
+  /// token khác (ví dụ Firebase thật) cho ra một tài khoản Google cố định.
+  @override
   Future<AuthSession> loginWithGoogleIdToken(String idToken) async {
     await Future<void>.delayed(latency);
+    final mock = MockGoogleAccount.parse(idToken);
+    if (mock != null) {
+      final email = mock.email.toLowerCase();
+      return _issue(
+        AppUser(
+          id: 'G-$email',
+          fullName: mock.displayName,
+          email: email,
+          authProvider: 'GOOGLE',
+        ),
+      );
+    }
     return _issue(
       const AppUser(
         id: 'G001',
@@ -164,6 +234,9 @@ class MockAuthService implements AuthService {
     }
     return _issue(current.user);
   }
+
+  @override
+  Future<AppUser?> fetchProfile(AuthSession session) async => null;
 
   @override
   Future<void> logout(AuthSession session) async {}
@@ -201,6 +274,24 @@ mixin _HttpJson {
               if (bearer != null) 'Authorization': 'Bearer $bearer',
             },
             body: jsonEncode(body),
+          )
+          .timeout(AppConfig.requestTimeout);
+    } on TimeoutException {
+      throw AuthException.timeout;
+    } on http.ClientException {
+      throw AuthException.network;
+    }
+  }
+
+  Future<http.Response> getJson(Uri uri, {String? bearer}) async {
+    try {
+      return await client
+          .get(
+            uri,
+            headers: {
+              'Accept': 'application/json',
+              if (bearer != null) 'Authorization': 'Bearer $bearer',
+            },
           )
           .timeout(AppConfig.requestTimeout);
     } on TimeoutException {
@@ -269,9 +360,8 @@ class DummyJsonAuthService with _HttpJson implements AuthService {
   bool get requiresSignupOtp => false;
 
   @override
-  Future<OtpSent> sendRegisterOtp(String email) async => throw const AuthException(
-    'Chế độ DummyJSON không hỗ trợ xác minh OTP.',
-  );
+  Future<OtpSent> sendRegisterOtp(String email) async =>
+      throw const AuthException('Chế độ DummyJSON không hỗ trợ xác minh OTP.');
 
   /// DummyJSON không lưu user mới: /users/add chỉ trả về bản giả lập,
   /// nên ta tạo phiên cục bộ (không có refresh token) để demo luồng đăng ký.
@@ -298,6 +388,24 @@ class DummyJsonAuthService with _HttpJson implements AuthService {
   }
 
   @override
+  bool get supportsPasswordReset => false;
+
+  @override
+  Future<OtpSent> sendPasswordResetOtp(String email) async =>
+      throw const AuthException(
+        'Chế độ DummyJSON không hỗ trợ đặt lại mật khẩu.',
+      );
+
+  @override
+  Future<void> resetPassword({
+    required String email,
+    required String otp,
+    required String newPassword,
+  }) async => throw const AuthException(
+    'Chế độ DummyJSON không hỗ trợ đặt lại mật khẩu.',
+  );
+
+  @override
   Future<AuthSession> loginWithGoogleIdToken(String idToken) async =>
       throw const AuthException(
         'Chế độ DummyJSON không hỗ trợ đăng nhập Google.',
@@ -321,6 +429,9 @@ class DummyJsonAuthService with _HttpJson implements AuthService {
   }
 
   @override
+  Future<AppUser?> fetchProfile(AuthSession session) async => null;
+
+  @override
   Future<void> logout(AuthSession session) async {}
 }
 
@@ -342,10 +453,8 @@ class SpringAuthService with _HttpJson implements AuthService {
   /// Tài khoản khách do DevDataSeeder của backend tạo sẵn (badminton_backend).
   /// Quản trị viên seed sẵn: admin@courtly.vn / 123456.
   @override
-  LoginRequest get demoAccount => const LoginRequest(
-    identifier: 'customer@courtly.vn',
-    password: '123456',
-  );
+  LoginRequest get demoAccount =>
+      const LoginRequest(identifier: 'customer@courtly.vn', password: '123456');
 
   @override
   Future<AuthSession> login(LoginRequest request) async {
@@ -377,6 +486,34 @@ class SpringAuthService with _HttpJson implements AuthService {
   }
 
   @override
+  bool get supportsPasswordReset => true;
+
+  /// Luôn 200 dù email có tồn tại hay không. 429 nếu gửi quá nhanh/quá nhiều,
+  /// 503 nếu backend chưa cấu hình mail.
+  @override
+  Future<OtpSent> sendPasswordResetOtp(String email) async {
+    final response = await postJson(_uri('/auth/password/forgot'), {
+      'email': email.trim(),
+    });
+    return OtpSent.fromJson(decodeOrThrow(response));
+  }
+
+  /// 400 nếu OTP sai/hết hạn hoặc mật khẩu mới quá yếu.
+  @override
+  Future<void> resetPassword({
+    required String email,
+    required String otp,
+    required String newPassword,
+  }) async {
+    final response = await postJson(_uri('/auth/password/reset'), {
+      'email': email.trim(),
+      'otp': otp.trim(),
+      'newPassword': newPassword,
+    });
+    decodeOrThrow(response);
+  }
+
+  @override
   Future<AuthSession> loginWithGoogleIdToken(String idToken) async {
     final response = await postJson(_uri('/auth/google'), {'idToken': idToken});
     return AuthSession.fromAuthResponse(decodeOrThrow(response));
@@ -390,6 +527,16 @@ class SpringAuthService with _HttpJson implements AuthService {
       'refreshToken': refreshToken,
     });
     return AuthSession.fromAuthResponse(decodeOrThrow(response));
+  }
+
+  /// GET /api/users/me -> UserDto { id, fullName, email, phone, role, avatarUrl, authProvider }.
+  @override
+  Future<AppUser?> fetchProfile(AuthSession session) async {
+    final response = await getJson(
+      _uri('/users/me'),
+      bearer: session.accessToken,
+    );
+    return AppUser.fromJson(decodeOrThrow(response));
   }
 
   @override

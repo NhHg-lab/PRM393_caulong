@@ -7,10 +7,13 @@ import '../models/auth_models.dart';
 import '../services/auth_manager.dart';
 import '../services/auth_service.dart';
 import '../services/firebase_auth_service.dart';
+import '../services/google_token_provider.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/validators.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/mock_google_picker.dart';
+import 'forgot_password_screen.dart';
 import 'otp_verify_screen.dart';
 
 /// Màn đăng nhập/đăng ký. Đăng nhập thành công thì AuthManager báo trạng thái
@@ -200,8 +203,10 @@ class _AuthScreenState extends State<AuthScreen> {
                                   ),
                                   const Spacer(),
                                   TextButton(
-                                    onPressed: () =>
-                                        _showMessage('Tính năng sắp ra mắt'),
+                                    key: const Key('forgot-password-button'),
+                                    onPressed: _loading
+                                        ? null
+                                        : _openForgotPassword,
                                     child: const Text('Quên mật khẩu?'),
                                   ),
                                 ],
@@ -382,12 +387,48 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  void _loginWithGoogle() {
-    if (!FirebaseAuthService.instance.isAvailable) {
-      _showMessage('Đăng nhập Google chưa được cấu hình');
+  /// Mở màn quên mật khẩu. Thành công thì màn đó trả về email vừa đặt lại
+  /// để điền sẵn vào ô đăng nhập.
+  Future<void> _openForgotPassword() async {
+    if (!_auth.supportsPasswordReset) {
+      _showMessage('Chế độ này không hỗ trợ đặt lại mật khẩu');
       return;
     }
-    _run(() => _auth.loginWithGoogle(remember: _remember));
+    final typed = _identifierController.text.trim();
+    final email = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => ForgotPasswordScreen(
+          initialEmail: Validators.email(typed) == null ? typed : null,
+        ),
+      ),
+    );
+    if (email == null || !mounted) return;
+    _identifierController.text = email;
+    _passwordController.clear();
+    _showMessage('Đặt lại mật khẩu thành công, hãy đăng nhập lại');
+  }
+
+  Future<void> _loginWithGoogle() async {
+    switch (AppConfig.googleMode) {
+      case GoogleMode.off:
+        _showMessage('Đăng nhập Google chưa được bật');
+      case GoogleMode.firebase:
+        if (!FirebaseAuthService.instance.isAvailable) {
+          _showMessage('Đăng nhập Google chưa được cấu hình');
+          return;
+        }
+        await _run(() => _auth.loginWithGoogle(remember: _remember));
+      case GoogleMode.mock:
+        // Không cần Firebase: chọn tài khoản giả rồi đi tiếp đúng luồng Google.
+        final account = await showMockGooglePicker(context);
+        if (account == null || !mounted) return;
+        await _run(
+          () => _auth.loginWithGoogle(
+            remember: _remember,
+            provider: MockGoogleTokenProvider(account),
+          ),
+        );
+    }
   }
 
   /// Chạy một thao tác xác thực: bật loading, báo lỗi bằng SnackBar.

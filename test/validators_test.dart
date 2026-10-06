@@ -14,18 +14,24 @@ void main() {
       expect(Validators.identifier('demo@@courtly.vn'), isNotNull);
     });
 
-    test('validates Vietnamese phone numbers (10 digits, like the backend)', () {
-      expect(Validators.identifier('0912345678'), isNull);
-      expect(Validators.identifier('091 234 5678'), isNull);
-      expect(Validators.identifier('+84912345678'), isNull);
-      expect(Validators.identifier('091-234-5678'), isNull);
-      expect(Validators.identifier('12345678'), isNotNull);
-      expect(Validators.identifier('091234567'), isNotNull); // 9 số
-      expect(Validators.identifier('09123456789'), isNotNull); // 11 số
-      expect(Validators.identifier('1912345678'), isNotNull); // không bắt đầu bằng 0
-      expect(Validators.identifier('091234567890'), isNotNull);
-      expect(Validators.identifier('abc'), isNotNull);
-    });
+    test(
+      'validates Vietnamese phone numbers (10 digits, like the backend)',
+      () {
+        expect(Validators.identifier('0912345678'), isNull);
+        expect(Validators.identifier('091 234 5678'), isNull);
+        expect(Validators.identifier('+84912345678'), isNull);
+        expect(Validators.identifier('091-234-5678'), isNull);
+        expect(Validators.identifier('12345678'), isNotNull);
+        expect(Validators.identifier('091234567'), isNotNull); // 9 số
+        expect(Validators.identifier('09123456789'), isNotNull); // 11 số
+        expect(
+          Validators.identifier('1912345678'),
+          isNotNull,
+        ); // không bắt đầu bằng 0
+        expect(Validators.identifier('091234567890'), isNotNull);
+        expect(Validators.identifier('abc'), isNotNull);
+      },
+    );
 
     test('accepts usernames only when allowed (DummyJSON)', () {
       expect(Validators.identifier('emilys'), isNotNull);

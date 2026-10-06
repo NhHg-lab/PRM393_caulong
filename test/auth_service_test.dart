@@ -1,9 +1,11 @@
 import 'dart:convert';
 
+import 'package:courtly/config/app_config.dart';
 import 'package:courtly/models/auth_models.dart';
 import 'package:courtly/services/api_client.dart';
 import 'package:courtly/services/auth_manager.dart';
 import 'package:courtly/services/auth_service.dart';
+import 'package:courtly/services/google_token_provider.dart';
 import 'package:courtly/services/session_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -72,23 +74,26 @@ void main() {
       },
     );
 
-    test('signup is rejected without the right OTP, accepted with it', () async {
-      const request = SignupRequest(
-        fullName: 'Lê Bình',
-        email: 'binh@courtly.vn',
-        password: 'Abcd1234',
-      );
-      await expectLater(
-        service.signup(request.copyWith(otp: '000000')),
-        throwsA(
-          isA<AuthException>().having((e) => e.statusCode, 'statusCode', 400),
-        ),
-      );
-      final session = await service.signup(
-        request.copyWith(otp: MockAuthService.otpCode),
-      );
-      expect(session.user.email, 'binh@courtly.vn');
-    });
+    test(
+      'signup is rejected without the right OTP, accepted with it',
+      () async {
+        const request = SignupRequest(
+          fullName: 'Lê Bình',
+          email: 'binh@courtly.vn',
+          password: 'Abcd1234',
+        );
+        await expectLater(
+          service.signup(request.copyWith(otp: '000000')),
+          throwsA(
+            isA<AuthException>().having((e) => e.statusCode, 'statusCode', 400),
+          ),
+        );
+        final session = await service.signup(
+          request.copyWith(otp: MockAuthService.otpCode),
+        );
+        expect(session.user.email, 'binh@courtly.vn');
+      },
+    );
 
     test('sendRegisterOtp: new email ok, registered email -> 409', () async {
       expect(service.requiresSignupOtp, isTrue);
@@ -103,6 +108,91 @@ void main() {
       );
     });
 
+    test(
+      'password reset OTP looks the same for known and unknown emails',
+      () async {
+        expect(service.supportsPasswordReset, isTrue);
+        final known = await service.sendPasswordResetOtp(
+          MockAuthService.demoEmail,
+        );
+        final unknown = await service.sendPasswordResetOtp('la@courtly.vn');
+        expect(unknown.message, known.message);
+        expect(unknown.expiresIn, known.expiresIn);
+        expect(unknown.resendAfter, known.resendAfter);
+        expect(known.message, contains(MockAuthService.otpCode));
+      },
+    );
+
+    test('resetPassword with the right OTP changes the password', () async {
+      await service.resetPassword(
+        email: ' DEMO@courtly.vn ',
+        otp: MockAuthService.otpCode,
+        newPassword: 'Moi12345',
+      );
+      final session = await service.login(
+        const LoginRequest(identifier: 'demo@courtly.vn', password: 'Moi12345'),
+      );
+      expect(session.user.email, MockAuthService.demoEmail);
+      await expectLater(
+        service.login(
+          const LoginRequest(
+            identifier: 'demo@courtly.vn',
+            password: MockAuthService.demoPassword,
+          ),
+        ),
+        throwsA(isA<AuthException>()),
+      );
+    });
+
+    test(
+      'resetPassword: wrong OTP and unknown email give the same 400',
+      () async {
+        Matcher sameError() => throwsA(
+          isA<AuthException>()
+              .having((e) => e.statusCode, 'statusCode', 400)
+              .having(
+                (e) => e.message,
+                'message',
+                'Mã OTP không hợp lệ hoặc đã hết hạn.',
+              ),
+        );
+        await expectLater(
+          service.resetPassword(
+            email: MockAuthService.demoEmail,
+            otp: '000000',
+            newPassword: 'Moi12345',
+          ),
+          sameError(),
+        );
+        await expectLater(
+          service.resetPassword(
+            email: 'la@courtly.vn',
+            otp: MockAuthService.otpCode,
+            newPassword: 'Moi12345',
+          ),
+          sameError(),
+        );
+        // Mật khẩu cũ vẫn dùng được vì chưa reset thành công.
+        await service.login(service.demoAccount);
+      },
+    );
+
+    test('Google login with a mock token returns that exact user', () async {
+      final session = await service.loginWithGoogleIdToken(
+        'mock:Lan.Nguyen@gmail.com:Nguyễn Lan',
+      );
+      expect(session.user.email, 'lan.nguyen@gmail.com');
+      expect(session.user.fullName, 'Nguyễn Lan');
+      expect(session.user.authProvider, 'GOOGLE');
+      expect(session.user.role, UserRole.customer);
+    });
+
+    test('Google login with another token keeps the old fixed user', () async {
+      final session = await service.loginWithGoogleIdToken('firebase-id-token');
+      expect(session.user.fullName, 'Người dùng Google');
+      expect(session.user.authProvider, 'GOOGLE');
+    });
+
     test('refresh issues a new token for a mock refresh token', () async {
       final session = await service.login(service.demoAccount);
       final renewed = await service.refresh(session);
@@ -111,6 +201,53 @@ void main() {
         () => service.refresh(session.copyWith(refreshToken: 'bogus')),
         throwsA(isA<AuthException>()),
       );
+    });
+  });
+
+  group('MockGoogleAccount', () {
+    test('idToken round-trips through parse, names may contain colons', () {
+      const account = MockGoogleAccount(
+        email: 'a@gmail.com',
+        displayName: 'An: Đội 1',
+      );
+      expect(account.idToken, 'mock:a@gmail.com:An: Đội 1');
+      final parsed = MockGoogleAccount.parse(account.idToken)!;
+      expect(parsed.email, 'a@gmail.com');
+      expect(parsed.displayName, 'An: Đội 1');
+    });
+
+    test('parse rejects malformed tokens', () {
+      for (final token in [
+        'eyJhbGciOi.real.token',
+        'mock:',
+        'mock:a@gmail.com',
+        'mock:a@gmail.com:',
+        'mock:not-an-email:Tên',
+        'mock::Tên',
+      ]) {
+        expect(MockGoogleAccount.parse(token), isNull, reason: token);
+      }
+    });
+
+    test('demo picker offers 3 distinct accounts', () {
+      final emails = MockGoogleAccount.demoAccounts.map((a) => a.email).toSet();
+      expect(emails, hasLength(3));
+    });
+  });
+
+  group('GoogleMode', () {
+    tearDown(() => AppConfig.googleModeOverride = null);
+
+    test(
+      'defaults to firebase without a define (enableGoogleSignIn = true)',
+      () {
+        expect(AppConfig.googleMode, GoogleMode.firebase);
+      },
+    );
+
+    test('test override wins (debug build)', () {
+      AppConfig.googleModeOverride = GoogleMode.mock;
+      expect(AppConfig.googleMode, GoogleMode.mock);
     });
   });
 
@@ -161,6 +298,25 @@ void main() {
       expect(reopened.isAdmin, isTrue);
       expect(reopened.session!.isExpired, isFalse);
     });
+
+    test(
+      'mock Google login uses the picked account; logout signs it out',
+      () async {
+        final provider = _RecordingGoogleProvider(
+          const MockGoogleAccount(
+            email: 'khoa.pham@gmail.com',
+            displayName: 'Phạm Khoa',
+          ),
+        );
+        final user = await manager.loginWithGoogle(provider: provider);
+        expect(user.fullName, 'Phạm Khoa');
+        expect(user.authProvider, 'GOOGLE');
+
+        await manager.logout();
+        expect(provider.signOutCalls, 1);
+        expect(manager.status, AuthStatus.unauthenticated);
+      },
+    );
 
     test('logout clears memory and storage', () async {
       await manager.login('demo@courtly.vn', '123456');
@@ -282,30 +438,262 @@ void main() {
       ]);
     });
 
-    test('server errors surface as AuthException with the server message', () async {
-      final client = MockClient(
-        (request) async => http.Response(
-          jsonEncode({
-            'status': 429,
-            'error': 'Too Many Requests',
-            'message': 'Vui long doi 30 giay truoc khi yeu cau ma moi',
-          }),
-          429,
-        ),
-      );
-      final service = SpringAuthService(
-        client: client,
+    test(
+      'server errors surface as AuthException with the server message',
+      () async {
+        final client = MockClient(
+          (request) async => http.Response(
+            jsonEncode({
+              'status': 429,
+              'error': 'Too Many Requests',
+              'message': 'Vui long doi 30 giay truoc khi yeu cau ma moi',
+            }),
+            429,
+          ),
+        );
+        final service = SpringAuthService(
+          client: client,
+          apiBaseUrl: 'http://test/api',
+        );
+        await expectLater(
+          service.sendRegisterOtp('an@courtly.vn'),
+          throwsA(
+            isA<AuthException>()
+                .having((e) => e.statusCode, 'statusCode', 429)
+                .having((e) => e.message, 'message', contains('30 giay')),
+          ),
+        );
+      },
+    );
+  });
+
+  group('AuthManager profile sync on restore (GET /users/me)', () {
+    late MemorySessionStorage storage;
+    final stored = AuthSession(
+      accessToken: 'stored-access',
+      refreshToken: 'stored-refresh',
+      expiresAt: DateTime.now().add(const Duration(minutes: 30)),
+      user: const AppUser(
+        id: 'u1',
+        fullName: 'Tran An',
+        email: 'an@courtly.vn',
+      ),
+    );
+    const userDto = {
+      'id': 'u1',
+      'fullName': 'Tran An (moi)',
+      'email': 'an@courtly.vn',
+      'phone': '0900000000',
+      'role': 'ADMIN',
+      'avatarUrl': null,
+      'authProvider': 'LOCAL',
+    };
+
+    setUp(() async {
+      storage = MemorySessionStorage();
+      await storage.save(stored);
+    });
+
+    AuthManager managerWith(MockClientHandler handler) => AuthManager(
+      service: SpringAuthService(
+        client: MockClient(handler),
         apiBaseUrl: 'http://test/api',
+      ),
+      storage: storage,
+    );
+
+    test('200 updates profile and role in memory and storage', () async {
+      http.Request? seen;
+      final manager = managerWith((request) async {
+        seen = request;
+        return http.Response(jsonEncode(userDto), 200);
+      });
+
+      await manager.restoreSession();
+
+      expect(seen!.method, 'GET');
+      expect(seen!.url.path, '/api/users/me');
+      expect(seen!.headers['Authorization'], 'Bearer stored-access');
+      expect(manager.isAuthenticated, isTrue);
+      expect(manager.isAdmin, isTrue);
+      expect(manager.currentUser!.fullName, 'Tran An (moi)');
+      final saved = (await storage.read())!;
+      expect(saved.user.role, UserRole.admin);
+      expect(saved.accessToken, 'stored-access');
+    });
+
+    for (final status in [401, 403]) {
+      test('$status (account locked/deleted) clears the session', () async {
+        final manager = managerWith(
+          (_) async => http.Response(
+            jsonEncode({'status': status, 'message': 'Tai khoan bi khoa'}),
+            status,
+          ),
+        );
+
+        await manager.restoreSession();
+
+        expect(manager.status, AuthStatus.unauthenticated);
+        expect(await storage.read(), isNull);
+      });
+    }
+
+    test('network error keeps the stored session (offline)', () async {
+      final manager = managerWith(
+        (_) async => throw http.ClientException('offline'),
       );
+
+      await manager.restoreSession();
+
+      expect(manager.isAuthenticated, isTrue);
+      expect(manager.currentUser!.fullName, 'Tran An');
+      expect(manager.isAdmin, isFalse);
+      expect(await storage.read(), isNotNull);
+    });
+
+    test('server error (500) keeps the stored session', () async {
+      final manager = managerWith((_) async => http.Response('', 500));
+      await manager.restoreSession();
+      expect(manager.isAuthenticated, isTrue);
+    });
+
+    test(
+      'expired session is refreshed first, then /users/me uses the new token',
+      () async {
+        await storage.save(
+          stored.copyWith(
+            expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+          ),
+        );
+        final calls = <String>[];
+        final manager = managerWith((request) async {
+          calls.add(
+            '${request.method} ${request.url.path} '
+            '${request.headers['Authorization'] ?? '-'}',
+          );
+          if (request.url.path.endsWith('/auth/refresh')) {
+            return http.Response(
+              jsonEncode({
+                'accessToken': 'new-access',
+                'refreshToken': 'new-refresh',
+                'expiresIn': 1800,
+                'user': {...userDto, 'role': 'CUSTOMER'},
+              }),
+              200,
+            );
+          }
+          return http.Response(jsonEncode(userDto), 200);
+        });
+
+        await manager.restoreSession();
+
+        expect(calls, [
+          'POST /api/auth/refresh -',
+          'GET /api/users/me Bearer new-access',
+        ]);
+        expect(manager.isAdmin, isTrue);
+        expect((await storage.read())!.refreshToken, 'new-refresh');
+      },
+    );
+
+    test('Mock and DummyJSON have no profile API', () async {
+      final mock = MockAuthService(latency: Duration.zero);
+      expect(await mock.fetchProfile(stored), isNull);
+      expect(await DummyJsonAuthService().fetchProfile(stored), isNull);
+    });
+  });
+
+  group('SpringAuthService password reset', () {
+    test(
+      'forgot then reset hit the contract endpoints with the right bodies',
+      () async {
+        final calls = <String>[];
+        final bodies = <Map<String, dynamic>>[];
+        final client = MockClient((request) async {
+          calls.add('${request.method} ${request.url.path}');
+          bodies.add(jsonDecode(request.body) as Map<String, dynamic>);
+          if (request.url.path.endsWith('/auth/password/forgot')) {
+            return http.Response(
+              jsonEncode({
+                'message': 'Neu email ton tai, ma OTP da duoc gui',
+                'expiresIn': 600,
+                'resendAfter': 45,
+              }),
+              200,
+            );
+          }
+          return http.Response(jsonEncode({'message': 'Da doi mat khau'}), 200);
+        });
+        final service = SpringAuthService(
+          client: client,
+          apiBaseUrl: 'http://test/api',
+        );
+
+        expect(service.supportsPasswordReset, isTrue);
+        final sent = await service.sendPasswordResetOtp(' an@courtly.vn ');
+        expect(sent.expiresIn, 600);
+        expect(sent.resendAfter, 45);
+        await service.resetPassword(
+          email: 'an@courtly.vn',
+          otp: '123456',
+          newPassword: 'Moi12345',
+        );
+
+        expect(calls, [
+          'POST /api/auth/password/forgot',
+          'POST /api/auth/password/reset',
+        ]);
+        expect(bodies.first, {'email': 'an@courtly.vn'});
+        expect(bodies.last, {
+          'email': 'an@courtly.vn',
+          'otp': '123456',
+          'newPassword': 'Moi12345',
+        });
+      },
+    );
+
+    SpringAuthService failingWith(int status, String message) =>
+        SpringAuthService(
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({'status': status, 'message': message}),
+              status,
+            ),
+          ),
+          apiBaseUrl: 'http://test/api',
+        );
+
+    test('429 on forgot surfaces the server wait message', () async {
+      final service = failingWith(429, 'Vui long doi 45 giay');
       await expectLater(
-        service.sendRegisterOtp('an@courtly.vn'),
+        service.sendPasswordResetOtp('an@courtly.vn'),
         throwsA(
           isA<AuthException>()
               .having((e) => e.statusCode, 'statusCode', 429)
-              .having((e) => e.message, 'message', contains('30 giay')),
+              .having((e) => e.message, 'message', contains('45 giay')),
         ),
       );
     });
+
+    test('400 on reset surfaces the server message', () async {
+      final service = failingWith(400, 'Ma OTP khong hop le hoac da het han');
+      await expectLater(
+        service.resetPassword(
+          email: 'an@courtly.vn',
+          otp: '000000',
+          newPassword: 'Moi12345',
+        ),
+        throwsA(
+          isA<AuthException>()
+              .having((e) => e.statusCode, 'statusCode', 400)
+              .having((e) => e.message, 'message', contains('OTP')),
+        ),
+      );
+    });
+  });
+
+  test('DummyJsonAuthService does not support password reset', () {
+    expect(DummyJsonAuthService().supportsPasswordReset, isFalse);
   });
 
   test('AuthException.fromHttp prefers the server message', () {
@@ -321,4 +709,14 @@ void main() {
     expect(error.fieldErrors, {'email': 'Email đã tồn tại'});
     expect(AuthException.fromHttp(500, 'oops').statusCode, 500);
   });
+}
+
+/// Ghi lại số lần signOut để kiểm tra AuthManager đăng xuất đúng provider.
+class _RecordingGoogleProvider extends MockGoogleTokenProvider {
+  _RecordingGoogleProvider(super.account);
+
+  int signOutCalls = 0;
+
+  @override
+  Future<void> signOut() async => signOutCalls++;
 }
