@@ -20,6 +20,21 @@ abstract class AuthService {
   /// Bước 1 của đăng ký: gửi mã OTP 6 số tới [email].
   Future<OtpSent> sendRegisterOtp(String email);
 
+  /// true nếu chế độ này hỗ trợ quên mật khẩu bằng OTP email.
+  bool get supportsPasswordReset;
+
+  /// Quên mật khẩu bước 1: gửi OTP tới [email]. Phản hồi luôn giống nhau dù
+  /// email có tồn tại hay không, để không lộ email nào đã đăng ký.
+  Future<OtpSent> sendPasswordResetOtp(String email);
+
+  /// Quên mật khẩu bước 2: đổi mật khẩu bằng mã OTP. Không trả về phiên,
+  /// người dùng phải đăng nhập lại bằng mật khẩu mới.
+  Future<void> resetPassword({
+    required String email,
+    required String otp,
+    required String newPassword,
+  });
+
   /// Đổi Firebase ID token lấy phiên đăng nhập của hệ thống.
   Future<AuthSession> loginWithGoogleIdToken(String idToken);
 
@@ -142,6 +157,41 @@ class MockAuthService implements AuthService {
     );
     _accounts[email] = (request.password, user);
     return _issue(user);
+  }
+
+  @override
+  bool get supportsPasswordReset => true;
+
+  @override
+  Future<OtpSent> sendPasswordResetOtp(String email) async {
+    await Future<void>.delayed(latency);
+    // Cố ý không kiểm tra email có tồn tại: phản hồi giống hệt nhau.
+    return const OtpSent(
+      message:
+          'Nếu email đã được đăng ký, mã OTP sẽ được gửi tới email đó. '
+          'Chế độ demo: mã OTP là $otpCode',
+      expiresIn: 300,
+      resendAfter: 30,
+    );
+  }
+
+  @override
+  Future<void> resetPassword({
+    required String email,
+    required String otp,
+    required String newPassword,
+  }) async {
+    await Future<void>.delayed(latency);
+    final normalized = email.trim().toLowerCase();
+    final account = _accounts[normalized];
+    // Mã sai và email lạ dùng chung một thông báo để không lộ email tồn tại.
+    if (account == null || otp != otpCode) {
+      throw const AuthException(
+        'Mã OTP không hợp lệ hoặc đã hết hạn.',
+        statusCode: 400,
+      );
+    }
+    _accounts[normalized] = (newPassword, account.$2);
   }
 
   @override
@@ -269,9 +319,8 @@ class DummyJsonAuthService with _HttpJson implements AuthService {
   bool get requiresSignupOtp => false;
 
   @override
-  Future<OtpSent> sendRegisterOtp(String email) async => throw const AuthException(
-    'Chế độ DummyJSON không hỗ trợ xác minh OTP.',
-  );
+  Future<OtpSent> sendRegisterOtp(String email) async =>
+      throw const AuthException('Chế độ DummyJSON không hỗ trợ xác minh OTP.');
 
   /// DummyJSON không lưu user mới: /users/add chỉ trả về bản giả lập,
   /// nên ta tạo phiên cục bộ (không có refresh token) để demo luồng đăng ký.
@@ -296,6 +345,24 @@ class DummyJsonAuthService with _HttpJson implements AuthService {
       ),
     );
   }
+
+  @override
+  bool get supportsPasswordReset => false;
+
+  @override
+  Future<OtpSent> sendPasswordResetOtp(String email) async =>
+      throw const AuthException(
+        'Chế độ DummyJSON không hỗ trợ đặt lại mật khẩu.',
+      );
+
+  @override
+  Future<void> resetPassword({
+    required String email,
+    required String otp,
+    required String newPassword,
+  }) async => throw const AuthException(
+    'Chế độ DummyJSON không hỗ trợ đặt lại mật khẩu.',
+  );
 
   @override
   Future<AuthSession> loginWithGoogleIdToken(String idToken) async =>
@@ -342,10 +409,8 @@ class SpringAuthService with _HttpJson implements AuthService {
   /// Tài khoản khách do DevDataSeeder của backend tạo sẵn (badminton_backend).
   /// Quản trị viên seed sẵn: admin@courtly.vn / 123456.
   @override
-  LoginRequest get demoAccount => const LoginRequest(
-    identifier: 'customer@courtly.vn',
-    password: '123456',
-  );
+  LoginRequest get demoAccount =>
+      const LoginRequest(identifier: 'customer@courtly.vn', password: '123456');
 
   @override
   Future<AuthSession> login(LoginRequest request) async {
@@ -374,6 +439,34 @@ class SpringAuthService with _HttpJson implements AuthService {
   Future<AuthSession> signup(SignupRequest request) async {
     final response = await postJson(_uri('/auth/register'), request.toJson());
     return AuthSession.fromAuthResponse(decodeOrThrow(response));
+  }
+
+  @override
+  bool get supportsPasswordReset => true;
+
+  /// Luôn 200 dù email có tồn tại hay không. 429 nếu gửi quá nhanh/quá nhiều,
+  /// 503 nếu backend chưa cấu hình mail.
+  @override
+  Future<OtpSent> sendPasswordResetOtp(String email) async {
+    final response = await postJson(_uri('/auth/password/forgot'), {
+      'email': email.trim(),
+    });
+    return OtpSent.fromJson(decodeOrThrow(response));
+  }
+
+  /// 400 nếu OTP sai/hết hạn hoặc mật khẩu mới quá yếu.
+  @override
+  Future<void> resetPassword({
+    required String email,
+    required String otp,
+    required String newPassword,
+  }) async {
+    final response = await postJson(_uri('/auth/password/reset'), {
+      'email': email.trim(),
+      'otp': otp.trim(),
+      'newPassword': newPassword,
+    });
+    decodeOrThrow(response);
   }
 
   @override

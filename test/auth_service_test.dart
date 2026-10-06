@@ -72,23 +72,26 @@ void main() {
       },
     );
 
-    test('signup is rejected without the right OTP, accepted with it', () async {
-      const request = SignupRequest(
-        fullName: 'Lê Bình',
-        email: 'binh@courtly.vn',
-        password: 'Abcd1234',
-      );
-      await expectLater(
-        service.signup(request.copyWith(otp: '000000')),
-        throwsA(
-          isA<AuthException>().having((e) => e.statusCode, 'statusCode', 400),
-        ),
-      );
-      final session = await service.signup(
-        request.copyWith(otp: MockAuthService.otpCode),
-      );
-      expect(session.user.email, 'binh@courtly.vn');
-    });
+    test(
+      'signup is rejected without the right OTP, accepted with it',
+      () async {
+        const request = SignupRequest(
+          fullName: 'Lê Bình',
+          email: 'binh@courtly.vn',
+          password: 'Abcd1234',
+        );
+        await expectLater(
+          service.signup(request.copyWith(otp: '000000')),
+          throwsA(
+            isA<AuthException>().having((e) => e.statusCode, 'statusCode', 400),
+          ),
+        );
+        final session = await service.signup(
+          request.copyWith(otp: MockAuthService.otpCode),
+        );
+        expect(session.user.email, 'binh@courtly.vn');
+      },
+    );
 
     test('sendRegisterOtp: new email ok, registered email -> 409', () async {
       expect(service.requiresSignupOtp, isTrue);
@@ -102,6 +105,75 @@ void main() {
         ),
       );
     });
+
+    test(
+      'password reset OTP looks the same for known and unknown emails',
+      () async {
+        expect(service.supportsPasswordReset, isTrue);
+        final known = await service.sendPasswordResetOtp(
+          MockAuthService.demoEmail,
+        );
+        final unknown = await service.sendPasswordResetOtp('la@courtly.vn');
+        expect(unknown.message, known.message);
+        expect(unknown.expiresIn, known.expiresIn);
+        expect(unknown.resendAfter, known.resendAfter);
+        expect(known.message, contains(MockAuthService.otpCode));
+      },
+    );
+
+    test('resetPassword with the right OTP changes the password', () async {
+      await service.resetPassword(
+        email: ' DEMO@courtly.vn ',
+        otp: MockAuthService.otpCode,
+        newPassword: 'Moi12345',
+      );
+      final session = await service.login(
+        const LoginRequest(identifier: 'demo@courtly.vn', password: 'Moi12345'),
+      );
+      expect(session.user.email, MockAuthService.demoEmail);
+      await expectLater(
+        service.login(
+          const LoginRequest(
+            identifier: 'demo@courtly.vn',
+            password: MockAuthService.demoPassword,
+          ),
+        ),
+        throwsA(isA<AuthException>()),
+      );
+    });
+
+    test(
+      'resetPassword: wrong OTP and unknown email give the same 400',
+      () async {
+        Matcher sameError() => throwsA(
+          isA<AuthException>()
+              .having((e) => e.statusCode, 'statusCode', 400)
+              .having(
+                (e) => e.message,
+                'message',
+                'Mã OTP không hợp lệ hoặc đã hết hạn.',
+              ),
+        );
+        await expectLater(
+          service.resetPassword(
+            email: MockAuthService.demoEmail,
+            otp: '000000',
+            newPassword: 'Moi12345',
+          ),
+          sameError(),
+        );
+        await expectLater(
+          service.resetPassword(
+            email: 'la@courtly.vn',
+            otp: MockAuthService.otpCode,
+            newPassword: 'Moi12345',
+          ),
+          sameError(),
+        );
+        // Mật khẩu cũ vẫn dùng được vì chưa reset thành công.
+        await service.login(service.demoAccount);
+      },
+    );
 
     test('refresh issues a new token for a mock refresh token', () async {
       final session = await service.login(service.demoAccount);
@@ -282,30 +354,126 @@ void main() {
       ]);
     });
 
-    test('server errors surface as AuthException with the server message', () async {
-      final client = MockClient(
-        (request) async => http.Response(
-          jsonEncode({
-            'status': 429,
-            'error': 'Too Many Requests',
-            'message': 'Vui long doi 30 giay truoc khi yeu cau ma moi',
-          }),
-          429,
-        ),
-      );
-      final service = SpringAuthService(
-        client: client,
-        apiBaseUrl: 'http://test/api',
-      );
+    test(
+      'server errors surface as AuthException with the server message',
+      () async {
+        final client = MockClient(
+          (request) async => http.Response(
+            jsonEncode({
+              'status': 429,
+              'error': 'Too Many Requests',
+              'message': 'Vui long doi 30 giay truoc khi yeu cau ma moi',
+            }),
+            429,
+          ),
+        );
+        final service = SpringAuthService(
+          client: client,
+          apiBaseUrl: 'http://test/api',
+        );
+        await expectLater(
+          service.sendRegisterOtp('an@courtly.vn'),
+          throwsA(
+            isA<AuthException>()
+                .having((e) => e.statusCode, 'statusCode', 429)
+                .having((e) => e.message, 'message', contains('30 giay')),
+          ),
+        );
+      },
+    );
+  });
+
+  group('SpringAuthService password reset', () {
+    test(
+      'forgot then reset hit the contract endpoints with the right bodies',
+      () async {
+        final calls = <String>[];
+        final bodies = <Map<String, dynamic>>[];
+        final client = MockClient((request) async {
+          calls.add('${request.method} ${request.url.path}');
+          bodies.add(jsonDecode(request.body) as Map<String, dynamic>);
+          if (request.url.path.endsWith('/auth/password/forgot')) {
+            return http.Response(
+              jsonEncode({
+                'message': 'Neu email ton tai, ma OTP da duoc gui',
+                'expiresIn': 600,
+                'resendAfter': 45,
+              }),
+              200,
+            );
+          }
+          return http.Response(jsonEncode({'message': 'Da doi mat khau'}), 200);
+        });
+        final service = SpringAuthService(
+          client: client,
+          apiBaseUrl: 'http://test/api',
+        );
+
+        expect(service.supportsPasswordReset, isTrue);
+        final sent = await service.sendPasswordResetOtp(' an@courtly.vn ');
+        expect(sent.expiresIn, 600);
+        expect(sent.resendAfter, 45);
+        await service.resetPassword(
+          email: 'an@courtly.vn',
+          otp: '123456',
+          newPassword: 'Moi12345',
+        );
+
+        expect(calls, [
+          'POST /api/auth/password/forgot',
+          'POST /api/auth/password/reset',
+        ]);
+        expect(bodies.first, {'email': 'an@courtly.vn'});
+        expect(bodies.last, {
+          'email': 'an@courtly.vn',
+          'otp': '123456',
+          'newPassword': 'Moi12345',
+        });
+      },
+    );
+
+    SpringAuthService failingWith(int status, String message) =>
+        SpringAuthService(
+          client: MockClient(
+            (_) async => http.Response(
+              jsonEncode({'status': status, 'message': message}),
+              status,
+            ),
+          ),
+          apiBaseUrl: 'http://test/api',
+        );
+
+    test('429 on forgot surfaces the server wait message', () async {
+      final service = failingWith(429, 'Vui long doi 45 giay');
       await expectLater(
-        service.sendRegisterOtp('an@courtly.vn'),
+        service.sendPasswordResetOtp('an@courtly.vn'),
         throwsA(
           isA<AuthException>()
               .having((e) => e.statusCode, 'statusCode', 429)
-              .having((e) => e.message, 'message', contains('30 giay')),
+              .having((e) => e.message, 'message', contains('45 giay')),
         ),
       );
     });
+
+    test('400 on reset surfaces the server message', () async {
+      final service = failingWith(400, 'Ma OTP khong hop le hoac da het han');
+      await expectLater(
+        service.resetPassword(
+          email: 'an@courtly.vn',
+          otp: '000000',
+          newPassword: 'Moi12345',
+        ),
+        throwsA(
+          isA<AuthException>()
+              .having((e) => e.statusCode, 'statusCode', 400)
+              .having((e) => e.message, 'message', contains('OTP')),
+        ),
+      );
+    });
+  });
+
+  test('DummyJsonAuthService does not support password reset', () {
+    expect(DummyJsonAuthService().supportsPasswordReset, isFalse);
   });
 
   test('AuthException.fromHttp prefers the server message', () {

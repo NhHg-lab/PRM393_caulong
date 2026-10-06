@@ -96,6 +96,20 @@ class AuthManager extends ChangeNotifier {
   Future<AppUser> signup(SignupRequest request) =>
       _signIn(() => _service.signup(request), true);
 
+  /// Chế độ hiện tại có hỗ trợ quên mật khẩu bằng OTP email hay không.
+  bool get supportsPasswordReset => _service.supportsPasswordReset;
+
+  Future<OtpSent> sendPasswordResetOtp(String email) =>
+      _service.sendPasswordResetOtp(email);
+
+  /// Không đăng nhập sẵn: người dùng phải đăng nhập lại bằng mật khẩu mới.
+  Future<void> resetPassword({
+    required String email,
+    required String otp,
+    required String newPassword,
+  }) =>
+      _service.resetPassword(email: email, otp: otp, newPassword: newPassword);
+
   /// Dùng bởi ApiClient khi gặp 401. Nhiều request cùng lúc chỉ refresh một lần.
   Future<bool> refreshSession() =>
       _refreshing ??= _doRefresh().whenComplete(() => _refreshing = null);

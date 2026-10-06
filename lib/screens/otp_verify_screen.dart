@@ -167,10 +167,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> with OtpCountdown {
                 onSubmitted: (_) => _verify(),
               ),
               const SizedBox(height: 12),
-              OtpExpiryText(
-                key: const Key('otp-expiry'),
-                expiresIn: expiresIn,
-              ),
+              OtpExpiryText(key: const Key('otp-expiry'), expiresIn: expiresIn),
               const SizedBox(height: 22),
               FilledButton(
                 key: const Key('otp-confirm-button'),
