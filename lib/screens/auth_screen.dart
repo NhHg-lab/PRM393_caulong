@@ -11,6 +11,7 @@ import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/validators.dart';
 import '../widgets/common_widgets.dart';
+import 'forgot_password_screen.dart';
 import 'otp_verify_screen.dart';
 
 /// Màn đăng nhập/đăng ký. Đăng nhập thành công thì AuthManager báo trạng thái
@@ -200,8 +201,10 @@ class _AuthScreenState extends State<AuthScreen> {
                                   ),
                                   const Spacer(),
                                   TextButton(
-                                    onPressed: () =>
-                                        _showMessage('Tính năng sắp ra mắt'),
+                                    key: const Key('forgot-password-button'),
+                                    onPressed: _loading
+                                        ? null
+                                        : _openForgotPassword,
                                     child: const Text('Quên mật khẩu?'),
                                   ),
                                 ],
@@ -380,6 +383,27 @@ class _AuthScreenState extends State<AuthScreen> {
         builder: (_) => OtpVerifyScreen(request: request, initialOtp: sent!),
       ),
     );
+  }
+
+  /// Mở màn quên mật khẩu. Thành công thì màn đó trả về email vừa đặt lại
+  /// để điền sẵn vào ô đăng nhập.
+  Future<void> _openForgotPassword() async {
+    if (!_auth.supportsPasswordReset) {
+      _showMessage('Chế độ này không hỗ trợ đặt lại mật khẩu');
+      return;
+    }
+    final typed = _identifierController.text.trim();
+    final email = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => ForgotPasswordScreen(
+          initialEmail: Validators.email(typed) == null ? typed : null,
+        ),
+      ),
+    );
+    if (email == null || !mounted) return;
+    _identifierController.text = email;
+    _passwordController.clear();
+    _showMessage('Đặt lại mật khẩu thành công, hãy đăng nhập lại');
   }
 
   void _loginWithGoogle() {

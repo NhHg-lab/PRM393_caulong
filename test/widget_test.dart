@@ -203,4 +203,108 @@ void main() {
 
     expect(find.text('Đăng nhập Google chưa được cấu hình'), findsOneWidget);
   });
+
+  // Bước 2 của màn quên mật khẩu có bộ đếm ngược: không dùng pumpAndSettle.
+  Future<void> pumpUntilFound(WidgetTester tester, Finder finder) async {
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      if (finder.evaluate().isNotEmpty) return;
+    }
+  }
+
+  Future<void> openResetStep(WidgetTester tester, String email) async {
+    await startApp(tester);
+    await tester.ensureVisible(find.byKey(const Key('forgot-password-button')));
+    await tester.tap(find.byKey(const Key('forgot-password-button')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('forgot-email-field')), email);
+    await tester.tap(find.byKey(const Key('forgot-send-button')));
+    await pumpUntilFound(tester, find.byKey(const Key('reset-code-field')));
+  }
+
+  Future<void> submitReset(
+    WidgetTester tester, {
+    required String code,
+    required String password,
+  }) async {
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('reset-code-field')),
+        matching: find.byType(TextField),
+      ),
+      code,
+    );
+    await tester.enterText(
+      find.byKey(const Key('reset-password-field')),
+      password,
+    );
+    await tester.enterText(
+      find.byKey(const Key('reset-confirm-field')),
+      password,
+    );
+    await tester.ensureVisible(find.byKey(const Key('reset-submit-button')));
+    await tester.tap(find.byKey(const Key('reset-submit-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+  }
+
+  testWidgets('forgot password: OTP + new password, then log in with it', (
+    tester,
+  ) async {
+    await openResetStep(tester, 'demo@courtly.vn');
+    expect(find.byKey(const Key('reset-expiry')), findsOneWidget);
+    expect(find.textContaining('mã OTP là 123456'), findsOneWidget);
+
+    await submitReset(tester, code: '123456', password: 'Moi12345');
+    await tester.pumpAndSettle();
+
+    // Quay về màn đăng nhập, email được điền sẵn.
+    expect(find.byKey(const Key('reset-code-field')), findsNothing);
+    expect(
+      find.text('Đặt lại mật khẩu thành công, hãy đăng nhập lại'),
+      findsOneWidget,
+    );
+    final identifier = tester.widget<TextFormField>(
+      find.byKey(const Key('auth-identifier-field')),
+    );
+    expect(identifier.controller!.text, 'demo@courtly.vn');
+    expect(AuthManager.instance.isAuthenticated, isFalse);
+
+    await tester.enterText(
+      find.byKey(const Key('auth-password-field')),
+      'Moi12345',
+    );
+    await tapPrimary(tester);
+    expect(find.text('Sân gần bạn'), findsOneWidget);
+  });
+
+  testWidgets(
+    'forgot password: a wrong OTP stays on the screen with an error',
+    (tester) async {
+      await openResetStep(tester, 'demo@courtly.vn');
+      await submitReset(tester, code: '000000', password: 'Moi12345');
+
+      expect(find.byKey(const Key('forgot-error')), findsOneWidget);
+      expect(find.text('Mã OTP không hợp lệ hoặc đã hết hạn.'), findsOneWidget);
+      expect(find.byKey(const Key('reset-code-field')), findsOneWidget);
+    },
+  );
+
+  testWidgets('forgot password validates email before sending', (tester) async {
+    await startApp(tester);
+    await tester.ensureVisible(find.byKey(const Key('forgot-password-button')));
+    await tester.tap(find.byKey(const Key('forgot-password-button')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('forgot-email-field')),
+      'khong-phai-email',
+    );
+    await tester.tap(find.byKey(const Key('forgot-send-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Email không đúng định dạng'), findsOneWidget);
+    expect(find.byKey(const Key('reset-code-field')), findsNothing);
+  });
 }
