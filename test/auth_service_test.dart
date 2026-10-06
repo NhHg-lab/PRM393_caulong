@@ -1,9 +1,11 @@
 import 'dart:convert';
 
+import 'package:courtly/config/app_config.dart';
 import 'package:courtly/models/auth_models.dart';
 import 'package:courtly/services/api_client.dart';
 import 'package:courtly/services/auth_manager.dart';
 import 'package:courtly/services/auth_service.dart';
+import 'package:courtly/services/google_token_provider.dart';
 import 'package:courtly/services/session_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -175,6 +177,22 @@ void main() {
       },
     );
 
+    test('Google login with a mock token returns that exact user', () async {
+      final session = await service.loginWithGoogleIdToken(
+        'mock:Lan.Nguyen@gmail.com:Nguyễn Lan',
+      );
+      expect(session.user.email, 'lan.nguyen@gmail.com');
+      expect(session.user.fullName, 'Nguyễn Lan');
+      expect(session.user.authProvider, 'GOOGLE');
+      expect(session.user.role, UserRole.customer);
+    });
+
+    test('Google login with another token keeps the old fixed user', () async {
+      final session = await service.loginWithGoogleIdToken('firebase-id-token');
+      expect(session.user.fullName, 'Người dùng Google');
+      expect(session.user.authProvider, 'GOOGLE');
+    });
+
     test('refresh issues a new token for a mock refresh token', () async {
       final session = await service.login(service.demoAccount);
       final renewed = await service.refresh(session);
@@ -183,6 +201,53 @@ void main() {
         () => service.refresh(session.copyWith(refreshToken: 'bogus')),
         throwsA(isA<AuthException>()),
       );
+    });
+  });
+
+  group('MockGoogleAccount', () {
+    test('idToken round-trips through parse, names may contain colons', () {
+      const account = MockGoogleAccount(
+        email: 'a@gmail.com',
+        displayName: 'An: Đội 1',
+      );
+      expect(account.idToken, 'mock:a@gmail.com:An: Đội 1');
+      final parsed = MockGoogleAccount.parse(account.idToken)!;
+      expect(parsed.email, 'a@gmail.com');
+      expect(parsed.displayName, 'An: Đội 1');
+    });
+
+    test('parse rejects malformed tokens', () {
+      for (final token in [
+        'eyJhbGciOi.real.token',
+        'mock:',
+        'mock:a@gmail.com',
+        'mock:a@gmail.com:',
+        'mock:not-an-email:Tên',
+        'mock::Tên',
+      ]) {
+        expect(MockGoogleAccount.parse(token), isNull, reason: token);
+      }
+    });
+
+    test('demo picker offers 3 distinct accounts', () {
+      final emails = MockGoogleAccount.demoAccounts.map((a) => a.email).toSet();
+      expect(emails, hasLength(3));
+    });
+  });
+
+  group('GoogleMode', () {
+    tearDown(() => AppConfig.googleModeOverride = null);
+
+    test(
+      'defaults to firebase without a define (enableGoogleSignIn = true)',
+      () {
+        expect(AppConfig.googleMode, GoogleMode.firebase);
+      },
+    );
+
+    test('test override wins (debug build)', () {
+      AppConfig.googleModeOverride = GoogleMode.mock;
+      expect(AppConfig.googleMode, GoogleMode.mock);
     });
   });
 
@@ -233,6 +298,25 @@ void main() {
       expect(reopened.isAdmin, isTrue);
       expect(reopened.session!.isExpired, isFalse);
     });
+
+    test(
+      'mock Google login uses the picked account; logout signs it out',
+      () async {
+        final provider = _RecordingGoogleProvider(
+          const MockGoogleAccount(
+            email: 'khoa.pham@gmail.com',
+            displayName: 'Phạm Khoa',
+          ),
+        );
+        final user = await manager.loginWithGoogle(provider: provider);
+        expect(user.fullName, 'Phạm Khoa');
+        expect(user.authProvider, 'GOOGLE');
+
+        await manager.logout();
+        expect(provider.signOutCalls, 1);
+        expect(manager.status, AuthStatus.unauthenticated);
+      },
+    );
 
     test('logout clears memory and storage', () async {
       await manager.login('demo@courtly.vn', '123456');
@@ -489,4 +573,14 @@ void main() {
     expect(error.fieldErrors, {'email': 'Email đã tồn tại'});
     expect(AuthException.fromHttp(500, 'oops').statusCode, 500);
   });
+}
+
+/// Ghi lại số lần signOut để kiểm tra AuthManager đăng xuất đúng provider.
+class _RecordingGoogleProvider extends MockGoogleTokenProvider {
+  _RecordingGoogleProvider(super.account);
+
+  int signOutCalls = 0;
+
+  @override
+  Future<void> signOut() async => signOutCalls++;
 }

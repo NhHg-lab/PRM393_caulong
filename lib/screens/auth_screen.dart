@@ -7,10 +7,12 @@ import '../models/auth_models.dart';
 import '../services/auth_manager.dart';
 import '../services/auth_service.dart';
 import '../services/firebase_auth_service.dart';
+import '../services/google_token_provider.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/validators.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/mock_google_picker.dart';
 import 'forgot_password_screen.dart';
 import 'otp_verify_screen.dart';
 
@@ -406,12 +408,27 @@ class _AuthScreenState extends State<AuthScreen> {
     _showMessage('Đặt lại mật khẩu thành công, hãy đăng nhập lại');
   }
 
-  void _loginWithGoogle() {
-    if (!FirebaseAuthService.instance.isAvailable) {
-      _showMessage('Đăng nhập Google chưa được cấu hình');
-      return;
+  Future<void> _loginWithGoogle() async {
+    switch (AppConfig.googleMode) {
+      case GoogleMode.off:
+        _showMessage('Đăng nhập Google chưa được bật');
+      case GoogleMode.firebase:
+        if (!FirebaseAuthService.instance.isAvailable) {
+          _showMessage('Đăng nhập Google chưa được cấu hình');
+          return;
+        }
+        await _run(() => _auth.loginWithGoogle(remember: _remember));
+      case GoogleMode.mock:
+        // Không cần Firebase: chọn tài khoản giả rồi đi tiếp đúng luồng Google.
+        final account = await showMockGooglePicker(context);
+        if (account == null || !mounted) return;
+        await _run(
+          () => _auth.loginWithGoogle(
+            remember: _remember,
+            provider: MockGoogleTokenProvider(account),
+          ),
+        );
     }
-    _run(() => _auth.loginWithGoogle(remember: _remember));
   }
 
   /// Chạy một thao tác xác thực: bật loading, báo lỗi bằng SnackBar.

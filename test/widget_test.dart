@@ -1,3 +1,4 @@
+import 'package:courtly/config/app_config.dart';
 import 'package:courtly/main.dart';
 import 'package:courtly/screens/splash_screen.dart';
 import 'package:courtly/services/auth_manager.dart';
@@ -16,6 +17,8 @@ void main() {
       storage: storage,
     );
   });
+
+  tearDown(() => AppConfig.googleModeOverride = null);
 
   Future<void> startApp(WidgetTester tester) async {
     await tester.pumpWidget(const CourtlyApp());
@@ -306,5 +309,55 @@ void main() {
 
     expect(find.text('Email không đúng định dạng'), findsOneWidget);
     expect(find.byKey(const Key('reset-code-field')), findsNothing);
+  });
+
+  testWidgets('mock Google: pick a demo account and land on Home', (
+    tester,
+  ) async {
+    AppConfig.googleModeOverride = GoogleMode.mock;
+    await startApp(tester);
+    await tester.ensureVisible(find.byKey(const Key('google-login-button')));
+    await tester.tap(find.byKey(const Key('google-login-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Chọn tài khoản Google (DEMO)'), findsOneWidget);
+    expect(find.text('Chế độ demo, không phải Google thật'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const Key('mock-google-account-lan.nguyen@gmail.com')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sân gần bạn'), findsOneWidget);
+    expect(AuthManager.instance.currentUser!.fullName, 'Nguyễn Lan');
+    expect(AuthManager.instance.currentUser!.authProvider, 'GOOGLE');
+  });
+
+  testWidgets('mock Google: closing the picker keeps the user on login', (
+    tester,
+  ) async {
+    AppConfig.googleModeOverride = GoogleMode.mock;
+    await startApp(tester);
+    await tester.ensureVisible(find.byKey(const Key('google-login-button')));
+    await tester.tap(find.byKey(const Key('google-login-button')));
+    await tester.pumpAndSettle();
+
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('mock-google-sheet')), findsNothing);
+    expect(AuthManager.instance.isAuthenticated, isFalse);
+  });
+
+  testWidgets('Google mode off reports that Google sign-in is disabled', (
+    tester,
+  ) async {
+    AppConfig.googleModeOverride = GoogleMode.off;
+    await startApp(tester);
+    await tester.ensureVisible(find.byKey(const Key('google-login-button')));
+    await tester.tap(find.byKey(const Key('google-login-button')));
+    await tester.pump();
+
+    expect(find.text('Đăng nhập Google chưa được bật'), findsOneWidget);
   });
 }

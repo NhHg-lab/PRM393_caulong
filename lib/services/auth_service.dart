@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
 import '../models/auth_models.dart';
+import 'google_token_provider.dart';
 
 /// Hợp đồng chung cho mọi nguồn xác thực. UI không gọi trực tiếp lớp này,
 /// mà đi qua AuthManager.
@@ -194,9 +195,23 @@ class MockAuthService implements AuthService {
     _accounts[normalized] = (newPassword, account.$2);
   }
 
+  /// Token giả `mock:<email>:<tên>` (GoogleMode.mock) cho ra đúng user đó;
+  /// token khác (ví dụ Firebase thật) cho ra một tài khoản Google cố định.
   @override
   Future<AuthSession> loginWithGoogleIdToken(String idToken) async {
     await Future<void>.delayed(latency);
+    final mock = MockGoogleAccount.parse(idToken);
+    if (mock != null) {
+      final email = mock.email.toLowerCase();
+      return _issue(
+        AppUser(
+          id: 'G-$email',
+          fullName: mock.displayName,
+          email: email,
+          authProvider: 'GOOGLE',
+        ),
+      );
+    }
     return _issue(
       const AppUser(
         id: 'G001',
