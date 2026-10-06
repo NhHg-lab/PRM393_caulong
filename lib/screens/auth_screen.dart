@@ -7,6 +7,7 @@ import '../models/auth_models.dart';
 import '../services/auth_manager.dart';
 import '../services/auth_service.dart';
 import '../services/firebase_auth_service.dart';
+import '../services/firebase_direct_auth_service.dart';
 import '../services/google_token_provider.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
@@ -390,6 +391,10 @@ class _AuthScreenState extends State<AuthScreen> {
   /// Mở màn quên mật khẩu. Thành công thì màn đó trả về email vừa đặt lại
   /// để điền sẵn vào ô đăng nhập.
   Future<void> _openForgotPassword() async {
+    if (AppConfig.authMode == AuthMode.firebase) {
+      await _sendFirebaseResetLink(_identifierController.text.trim());
+      return;
+    }
     if (!_auth.supportsPasswordReset) {
       _showMessage('Chế độ này không hỗ trợ đặt lại mật khẩu');
       return;
@@ -406,6 +411,52 @@ class _AuthScreenState extends State<AuthScreen> {
     _identifierController.text = email;
     _passwordController.clear();
     _showMessage('Đặt lại mật khẩu thành công, hãy đăng nhập lại');
+  }
+
+  /// AUTH_MODE=firebase: Firebase gửi LIÊN KẾT đặt lại mật khẩu qua email
+  /// (không có OTP 6 số như chế độ spring).
+  Future<void> _sendFirebaseResetLink(String typed) async {
+    final controller = TextEditingController(
+      text: Validators.email(typed) == null ? typed : '',
+    );
+    final email = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Quên mật khẩu'),
+        content: TextField(
+          key: const Key('firebase-reset-email'),
+          controller: controller,
+          keyboardType: TextInputType.emailAddress,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Email đã đăng ký'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Huỷ'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Gửi liên kết'),
+          ),
+        ],
+      ),
+    );
+    if (email == null || !mounted) return;
+    final problem = Validators.email(email);
+    if (problem != null) {
+      _showMessage(problem);
+      return;
+    }
+    try {
+      await FirebaseDirectAuthService().sendPasswordResetLink(email);
+      _showMessage(
+        'Nếu email đã đăng ký, Firebase đã gửi liên kết đặt lại mật khẩu. '
+        'Hãy kiểm tra hộp thư (cả mục Spam).',
+      );
+    } on AuthException catch (error) {
+      _showMessage(error.message);
+    }
   }
 
   Future<void> _loginWithGoogle() async {

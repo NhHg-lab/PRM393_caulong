@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
 import '../models/auth_models.dart';
+import 'firebase_direct_auth_service.dart';
 import 'google_token_provider.dart';
 
 /// Hợp đồng chung cho mọi nguồn xác thực. UI không gọi trực tiếp lớp này,
@@ -58,6 +59,7 @@ abstract class AuthService {
         AuthMode.mock => MockAuthService(),
         AuthMode.dummyJson => DummyJsonAuthService(client: client),
         AuthMode.spring => SpringAuthService(client: client),
+        AuthMode.firebase => FirebaseDirectAuthService(),
       };
 }
 
