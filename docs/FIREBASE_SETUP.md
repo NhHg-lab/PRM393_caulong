@@ -1,8 +1,10 @@
 # Hướng dẫn cấu hình Firebase cho Đăng nhập Google (Courtly)
 
-Tài liệu này dành cho thành viên phụ trách tạo Firebase project. Hiện tại app **đã có sẵn khung code** cho Google Sign-In nhưng đang **tắt** (`AppConfig.enableGoogleSignIn = false`), nên app vẫn build và chạy bình thường khi chưa có Firebase. Làm lần lượt các bước dưới đây để bật tính năng.
+Google Sign-In **đã được bật** trong app: Firebase project đã tạo, `android/app/google-services.json` đã commit, plugin `google-services` đã bật trong Gradle, và `lib/config/app_config.dart` đã đặt `enableGoogleSignIn = true` cùng `googleServerClientId`.
 
-> Tìm nhanh mọi chỗ cần sửa trong code: tìm chuỗi `TODO(FIREBASE)`.
+> **Thành viên mới chỉ cần làm Bước 3** (thêm SHA-1 + SHA-256 của máy mình vào Firebase Console), rồi chạy app. Các bước còn lại được giữ để tham khảo khi cần tạo lại project hoặc đổi sang project khác.
+>
+> Nếu muốn tắt tạm Google Sign-In, đặt `AppConfig.enableGoogleSignIn = false`: app vẫn chạy bình thường, nút Google sẽ báo "chưa được cấu hình".
 
 ## Luồng hoạt động
 
@@ -65,17 +67,17 @@ Dán cả hai vào **Project settings → Your apps → (app Android) → Add fi
 1. **Project settings → Your apps → app Android → tải `google-services.json`**.
    (Nếu đã thêm SHA-1 sau khi tải, hãy **tải lại** file này.)
 2. Đặt file vào đúng vị trí: `android/app/google-services.json`.
-3. Có commit file này không? File không chứa bí mật tuyệt đối nhưng có API key của project. Nếu nhóm **không muốn commit**, mở `.gitignore` và bỏ comment dòng `android/app/google-services.json`, sau đó gửi file cho nhau qua kênh riêng.
+3. Nhóm hiện **commit** file này (không chứa bí mật tuyệt đối, chỉ có API key của project). Nếu sau này không muốn commit, mở `.gitignore` và bỏ comment dòng `android/app/google-services.json`, sau đó gửi file cho nhau qua kênh riêng.
 
-## Bước 6. Bỏ comment các dòng `TODO(FIREBASE)`
+## Bước 6. Cấu hình trong code (đã làm sẵn)
+
+Các dòng dưới đây đã có trong repo. Chỉ cần sửa lại nếu đổi sang Firebase project khác.
 
 1. `android/settings.gradle.kts` — trong khối `plugins { ... }`:
 
    ```kotlin
-   id("com.google.gms.google-services") version "4.4.2" apply false
+   id("com.google.gms.google-services") version "4.5.0" apply false
    ```
-
-   (Có thể dùng phiên bản mới hơn mà Firebase Console gợi ý.)
 
 2. `android/app/build.gradle.kts` — trong khối `plugins { ... }`:
 
@@ -87,7 +89,7 @@ Dán cả hai vào **Project settings → Your apps → (app Android) → Add fi
 
    ```dart
    static const bool enableGoogleSignIn = true;
-   static const String? googleServerClientId = '<Web client ID ở Bước 4>';
+   static const String googleServerClientId = '<Web client ID ở Bước 4>';
    ```
 
    `googleServerClientId` là **Web client ID** (không phải Android client ID). Thiếu giá trị này thì trên Android, Google thường không trả về `idToken`.
@@ -113,7 +115,7 @@ Backend cần xác minh Firebase ID token mà app gửi lên `POST /api/auth/goo
 
 ## Bước 8. Kiểm tra
 
-1. Đặt `AppConfig.authMode = AuthMode.spring` và chạy backend (hoặc giữ `AuthMode.mock` để chỉ thử phần Google/Firebase phía app: mock chấp nhận mọi ID token).
+1. Chạy backend rồi chạy app bằng `flutter run --dart-define=AUTH_MODE=spring`. Hoặc chạy `flutter run` (chế độ mock) để chỉ thử phần Google/Firebase phía app: mock chấp nhận mọi ID token.
 2. Mở app → **Đăng nhập với Google** → chọn tài khoản.
 3. Thành công: vào màn Khám phá, có thông báo "Đăng nhập thành công". Trong Firebase Console → Authentication → Users sẽ thấy tài khoản vừa đăng nhập.
 
@@ -126,7 +128,7 @@ Backend cần xác minh Firebase ID token mà app gửi lên `POST /api/auth/goo
 | SnackBar "Đăng nhập Google chưa được cấu hình" | `enableGoogleSignIn = false` hoặc `Firebase.initializeApp()` thất bại | Kiểm tra Bước 5–6; xem log `Firebase chưa được cấu hình` trong console |
 | `DEVELOPER_ERROR` / `ApiException: 10` / lỗi `clientConfigurationError` | SHA-1 của máy đang chạy chưa được thêm, package name sai, hoặc `google-services.json` cũ | Chạy lại `signingReport`, thêm SHA-1 + SHA-256 của **máy này**, tải lại `google-services.json`, `flutter clean` |
 | Không lấy được `idToken` ("Không lấy được thông tin từ Google") | Thiếu hoặc sai `googleServerClientId` | Dùng **Web client ID** (Authentication → Google → Web SDK configuration) |
-| Build lỗi `File google-services.json is missing` | Đã bỏ comment plugin `google-services` nhưng chưa đặt file | Đặt file vào `android/app/` hoặc comment lại plugin |
+| Build lỗi `File google-services.json is missing` | Plugin `google-services` đang bật nhưng thiếu file (ví dụ đã đưa file vào `.gitignore`) | Đặt file vào `android/app/` hoặc comment lại plugin |
 | Build lỗi `No matching client found for package name` | Package trong Firebase khác `vn.courtly.courtly` | Thêm lại app Android với đúng package |
 | Emulator không hiện hộp chọn tài khoản / lỗi Google Play Services | Emulator dùng system image **không có Google Play** | Tạo AVD mới với image có biểu tượng Play Store (Google Play), đăng nhập tài khoản Google trong emulator |
 | Bạn A đăng nhập được, bạn B thì không | Mỗi máy một debug keystore khác SHA-1 | Thêm SHA-1 của bạn B, hoặc dùng chung `debug.keystore` (Bước 3) |

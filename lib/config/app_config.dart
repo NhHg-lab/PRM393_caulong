@@ -38,8 +38,8 @@ abstract final class AppConfig {
   /// Chỉ bật khi đã cấu hình Firebase (xem docs/FIREBASE_SETUP.md).
   static const bool enableGoogleSignIn = true;
 
-  // TODO(FIREBASE): điền Web client ID (client_type 3 trong google-services.json)
-  // để Google Sign-In trên Android trả về idToken. Để null nếu chưa có.
+  // Web client ID (client_type 3 trong google-services.json), cần để
+  // Google Sign-In trên Android trả về idToken.
   static const String googleServerClientId =
       '813885294318-71q2upnh1pp814amjlsc6ok48k8mao52.apps.googleusercontent.com';
 
