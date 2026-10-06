@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "813885294318-shg4kp7fhmgaihqfi2n1v51lr359i9hh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "vn.courtly.courtly",
+            "certificate_hash": "768feeecc9073f5b631381fe689522ddc65351c2"
+          }
+        },
+        {
           "client_id": "813885294318-71q2upnh1pp814amjlsc6ok48k8mao52.apps.googleusercontent.com",
           "client_type": 3
         }
