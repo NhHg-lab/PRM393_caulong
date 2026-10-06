@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/demo_data.dart';
+import '../models/auth_models.dart';
 import '../models/models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
@@ -9,11 +10,15 @@ import 'booking_flow.dart';
 class CustomerApp extends StatefulWidget {
   const CustomerApp({
     super.key,
+    required this.user,
     required this.onLogout,
-    required this.onOpenAdmin,
+    this.onOpenAdmin,
   });
+  final AppUser user;
   final VoidCallback onLogout;
-  final VoidCallback onOpenAdmin;
+
+  /// null khi người dùng không phải admin: ẩn thẻ "Trung tâm quản trị".
+  final VoidCallback? onOpenAdmin;
 
   @override
   State<CustomerApp> createState() => _CustomerAppState();
@@ -62,10 +67,22 @@ class _CustomerAppState extends State<CustomerApp> {
         onBook: _book,
         onToggleFavorite: _toggleFavorite,
       ),
-      ProfileScreen(onLogout: widget.onLogout, onOpenAdmin: widget.onOpenAdmin),
+      ProfileScreen(
+        user: widget.user,
+        onLogout: widget.onLogout,
+        onOpenAdmin: widget.onOpenAdmin,
+      ),
     ];
     return Scaffold(
-      body: IndexedStack(index: _tab, children: pages),
+      // IndexedStack giữ mọi tab trong cây; tắt Hero ở tab ẩn để không trùng tag
+      // (vd. cùng một sân vừa ở Trang chủ vừa ở Yêu thích).
+      body: IndexedStack(
+        index: _tab,
+        children: [
+          for (var i = 0; i < pages.length; i++)
+            HeroMode(enabled: i == _tab, child: pages[i]),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (index) => setState(() => _tab = index),
@@ -838,11 +855,13 @@ class FavoritesScreen extends StatelessWidget {
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({
     super.key,
+    required this.user,
     required this.onLogout,
-    required this.onOpenAdmin,
+    this.onOpenAdmin,
   });
+  final AppUser user;
   final VoidCallback onLogout;
-  final VoidCallback onOpenAdmin;
+  final VoidCallback? onOpenAdmin;
 
   @override
   Widget build(BuildContext context) {
@@ -865,9 +884,9 @@ class ProfileScreen extends StatelessWidget {
                       shape: BoxShape.circle,
                     ),
                     alignment: Alignment.center,
-                    child: const Text(
-                      'HN',
-                      style: TextStyle(
+                    child: Text(
+                      user.initials,
+                      style: const TextStyle(
                         fontSize: 21,
                         fontWeight: FontWeight.w900,
                         color: AppColors.navyDeep,
@@ -880,11 +899,13 @@ class ProfileScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Hoàng Nam',
+                          user.fullName,
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         const SizedBox(height: 4),
-                        const Text('nam.hoang@example.com'),
+                        Text(
+                          user.email.isNotEmpty ? user.email : user.phone ?? '',
+                        ),
                       ],
                     ),
                   ),
@@ -940,58 +961,61 @@ class ProfileScreen extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 20),
-          Card(
-            color: AppColors.navyDeep,
-            child: InkWell(
-              key: const Key('open-admin-button'),
-              onTap: onOpenAdmin,
-              borderRadius: BorderRadius.circular(22),
-              child: const Padding(
-                padding: EdgeInsets.all(18),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.admin_panel_settings_rounded,
-                      color: AppColors.lime,
-                      size: 30,
-                    ),
-                    SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Trung tâm quản trị',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 16,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Quản lý sân, lịch đặt và người dùng',
-                            style: TextStyle(
-                              color: Color(0xFFB9C7D2),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
+          if (onOpenAdmin != null) ...[
+            const SizedBox(height: 20),
+            Card(
+              color: AppColors.navyDeep,
+              child: InkWell(
+                key: const Key('open-admin-button'),
+                onTap: onOpenAdmin,
+                borderRadius: BorderRadius.circular(22),
+                child: const Padding(
+                  padding: EdgeInsets.all(18),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.admin_panel_settings_rounded,
+                        color: AppColors.lime,
+                        size: 30,
                       ),
-                    ),
-                    Icon(
-                      Icons.arrow_forward_ios_rounded,
-                      color: Colors.white54,
-                      size: 17,
-                    ),
-                  ],
+                      SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Trung tâm quản trị',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Quản lý sân, lịch đặt và người dùng',
+                              style: TextStyle(
+                                color: Color(0xFFB9C7D2),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(
+                        Icons.arrow_forward_ios_rounded,
+                        color: Colors.white54,
+                        size: 17,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
           const SizedBox(height: 20),
           OutlinedButton.icon(
+            key: const Key('logout-button'),
             onPressed: onLogout,
             icon: const Icon(Icons.logout_rounded),
             label: const Text('Đăng xuất'),

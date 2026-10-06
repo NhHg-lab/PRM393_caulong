@@ -47,5 +47,9 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 
+# Firebase: bỏ comment dòng dưới nếu nhóm không muốn commit file cấu hình Firebase
+# android/app/google-services.json
+# ios/Runner/GoogleService-Info.plist
+
 # Local emulator QA captures
 courtly-*.png
