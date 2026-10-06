@@ -42,6 +42,11 @@ abstract class AuthService {
   /// Lấy access token mới. Ném [AuthException] nếu refresh token không còn hợp lệ.
   Future<AuthSession> refresh(AuthSession current);
 
+  /// Hồ sơ mới nhất của người dùng (GET /users/me). Trả về null nếu chế độ
+  /// này không có API hồ sơ. 401/403 ném [AuthException] có statusCode,
+  /// lỗi mạng ném [AuthException.network] / [AuthException.timeout].
+  Future<AppUser?> fetchProfile(AuthSession session);
+
   /// Thu hồi phiên phía server (nếu có). Không ném lỗi.
   Future<void> logout(AuthSession session);
 
@@ -231,6 +236,9 @@ class MockAuthService implements AuthService {
   }
 
   @override
+  Future<AppUser?> fetchProfile(AuthSession session) async => null;
+
+  @override
   Future<void> logout(AuthSession session) async {}
 
   AuthSession _issue(AppUser user) {
@@ -266,6 +274,24 @@ mixin _HttpJson {
               if (bearer != null) 'Authorization': 'Bearer $bearer',
             },
             body: jsonEncode(body),
+          )
+          .timeout(AppConfig.requestTimeout);
+    } on TimeoutException {
+      throw AuthException.timeout;
+    } on http.ClientException {
+      throw AuthException.network;
+    }
+  }
+
+  Future<http.Response> getJson(Uri uri, {String? bearer}) async {
+    try {
+      return await client
+          .get(
+            uri,
+            headers: {
+              'Accept': 'application/json',
+              if (bearer != null) 'Authorization': 'Bearer $bearer',
+            },
           )
           .timeout(AppConfig.requestTimeout);
     } on TimeoutException {
@@ -403,6 +429,9 @@ class DummyJsonAuthService with _HttpJson implements AuthService {
   }
 
   @override
+  Future<AppUser?> fetchProfile(AuthSession session) async => null;
+
+  @override
   Future<void> logout(AuthSession session) async {}
 }
 
@@ -498,6 +527,16 @@ class SpringAuthService with _HttpJson implements AuthService {
       'refreshToken': refreshToken,
     });
     return AuthSession.fromAuthResponse(decodeOrThrow(response));
+  }
+
+  /// GET /api/users/me -> UserDto { id, fullName, email, phone, role, avatarUrl, authProvider }.
+  @override
+  Future<AppUser?> fetchProfile(AuthSession session) async {
+    final response = await getJson(
+      _uri('/users/me'),
+      bearer: session.accessToken,
+    );
+    return AppUser.fromJson(decodeOrThrow(response));
   }
 
   @override

@@ -84,6 +84,10 @@ abstract final class AppConfig {
 
   static const Duration requestTimeout = Duration(seconds: 15);
 
+  /// Thời gian tối đa chờ GET /users/me lúc khôi phục phiên, để Splash không
+  /// treo lâu khi mạng chậm (quá hạn thì giữ hồ sơ đã lưu).
+  static const Duration profileSyncTimeout = Duration(seconds: 5);
+
   /// Thời gian giả lập độ trễ mạng của MockAuthService.
   static const Duration mockLatency = Duration(seconds: 2);
 

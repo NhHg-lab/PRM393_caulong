@@ -467,6 +467,142 @@ void main() {
     );
   });
 
+  group('AuthManager profile sync on restore (GET /users/me)', () {
+    late MemorySessionStorage storage;
+    final stored = AuthSession(
+      accessToken: 'stored-access',
+      refreshToken: 'stored-refresh',
+      expiresAt: DateTime.now().add(const Duration(minutes: 30)),
+      user: const AppUser(
+        id: 'u1',
+        fullName: 'Tran An',
+        email: 'an@courtly.vn',
+      ),
+    );
+    const userDto = {
+      'id': 'u1',
+      'fullName': 'Tran An (moi)',
+      'email': 'an@courtly.vn',
+      'phone': '0900000000',
+      'role': 'ADMIN',
+      'avatarUrl': null,
+      'authProvider': 'LOCAL',
+    };
+
+    setUp(() async {
+      storage = MemorySessionStorage();
+      await storage.save(stored);
+    });
+
+    AuthManager managerWith(MockClientHandler handler) => AuthManager(
+      service: SpringAuthService(
+        client: MockClient(handler),
+        apiBaseUrl: 'http://test/api',
+      ),
+      storage: storage,
+    );
+
+    test('200 updates profile and role in memory and storage', () async {
+      http.Request? seen;
+      final manager = managerWith((request) async {
+        seen = request;
+        return http.Response(jsonEncode(userDto), 200);
+      });
+
+      await manager.restoreSession();
+
+      expect(seen!.method, 'GET');
+      expect(seen!.url.path, '/api/users/me');
+      expect(seen!.headers['Authorization'], 'Bearer stored-access');
+      expect(manager.isAuthenticated, isTrue);
+      expect(manager.isAdmin, isTrue);
+      expect(manager.currentUser!.fullName, 'Tran An (moi)');
+      final saved = (await storage.read())!;
+      expect(saved.user.role, UserRole.admin);
+      expect(saved.accessToken, 'stored-access');
+    });
+
+    for (final status in [401, 403]) {
+      test('$status (account locked/deleted) clears the session', () async {
+        final manager = managerWith(
+          (_) async => http.Response(
+            jsonEncode({'status': status, 'message': 'Tai khoan bi khoa'}),
+            status,
+          ),
+        );
+
+        await manager.restoreSession();
+
+        expect(manager.status, AuthStatus.unauthenticated);
+        expect(await storage.read(), isNull);
+      });
+    }
+
+    test('network error keeps the stored session (offline)', () async {
+      final manager = managerWith(
+        (_) async => throw http.ClientException('offline'),
+      );
+
+      await manager.restoreSession();
+
+      expect(manager.isAuthenticated, isTrue);
+      expect(manager.currentUser!.fullName, 'Tran An');
+      expect(manager.isAdmin, isFalse);
+      expect(await storage.read(), isNotNull);
+    });
+
+    test('server error (500) keeps the stored session', () async {
+      final manager = managerWith((_) async => http.Response('', 500));
+      await manager.restoreSession();
+      expect(manager.isAuthenticated, isTrue);
+    });
+
+    test(
+      'expired session is refreshed first, then /users/me uses the new token',
+      () async {
+        await storage.save(
+          stored.copyWith(
+            expiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+          ),
+        );
+        final calls = <String>[];
+        final manager = managerWith((request) async {
+          calls.add(
+            '${request.method} ${request.url.path} '
+            '${request.headers['Authorization'] ?? '-'}',
+          );
+          if (request.url.path.endsWith('/auth/refresh')) {
+            return http.Response(
+              jsonEncode({
+                'accessToken': 'new-access',
+                'refreshToken': 'new-refresh',
+                'expiresIn': 1800,
+                'user': {...userDto, 'role': 'CUSTOMER'},
+              }),
+              200,
+            );
+          }
+          return http.Response(jsonEncode(userDto), 200);
+        });
+
+        await manager.restoreSession();
+
+        expect(calls, [
+          'POST /api/auth/refresh -',
+          'GET /api/users/me Bearer new-access',
+        ]);
+        expect(manager.isAdmin, isTrue);
+        expect((await storage.read())!.refreshToken, 'new-refresh');
+      },
+    );
+
+    test('Mock and DummyJSON have no profile API', () async {
+      final mock = MockAuthService(latency: Duration.zero);
+      expect(await mock.fetchProfile(stored), isNull);
+      expect(await DummyJsonAuthService().fetchProfile(stored), isNull);
+    });
+  });
+
   group('SpringAuthService password reset', () {
     test(
       'forgot then reset hit the contract endpoints with the right bodies',

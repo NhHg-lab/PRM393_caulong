@@ -46,7 +46,10 @@ class AuthManager extends ChangeNotifier {
   bool get isAdmin => isAuthenticated && (currentUser?.isAdmin ?? false);
   LoginRequest get demoAccount => _service.demoAccount;
 
-  /// Gọi một lần lúc mở app. Phiên hết hạn sẽ được thử refresh.
+  /// Gọi một lần lúc mở app. Phiên hết hạn sẽ được thử refresh, sau đó hồ sơ
+  /// được đồng bộ với server (GET /users/me). Trạng thái chỉ đổi khỏi
+  /// `unknown` khi đã xong cả hai bước, nên Splash không nhấp nháy sang Home
+  /// rồi lại về Login.
   Future<void> restoreSession() async {
     AuthSession? stored;
     try {
@@ -59,14 +62,42 @@ class AuthManager extends ChangeNotifier {
       return;
     }
     _persist = true;
-    if (!stored.isExpired) {
-      _setSession(stored);
-      return;
+    var session = stored;
+    if (session.isExpired) {
+      final renewed = await _renew(session);
+      if (renewed == null) {
+        await _storage.clear();
+        _setSession(null);
+        return;
+      }
+      session = renewed;
     }
-    _session = stored;
-    if (!await refreshSession()) {
+    final synced = await _syncProfile(session);
+    if (synced == null) {
       await _storage.clear();
       _setSession(null);
+      return;
+    }
+    _setSession(synced);
+  }
+
+  /// Lấy hồ sơ/role mới nhất từ server và lưu lại.
+  /// - 401/403 (tài khoản bị khoá/xoá, phiên bị thu hồi): trả về null để đăng xuất.
+  /// - Lỗi mạng/timeout: giữ phiên đã lưu, không bắt đăng nhập lại khi offline.
+  Future<AuthSession?> _syncProfile(AuthSession session) async {
+    try {
+      final user = await _service
+          .fetchProfile(session)
+          .timeout(AppConfig.profileSyncTimeout);
+      if (user == null) return session;
+      final updated = session.copyWith(user: user);
+      await _storage.save(updated);
+      return updated;
+    } on AuthException catch (error) {
+      if (error.statusCode == 401 || error.statusCode == 403) return null;
+      return session;
+    } catch (_) {
+      return session;
     }
   }
 
@@ -128,13 +159,20 @@ class AuthManager extends ChangeNotifier {
   Future<bool> _doRefresh() async {
     final current = _session;
     if (current == null) return false;
+    final renewed = await _renew(current);
+    if (renewed == null) return false;
+    _setSession(renewed);
+    return true;
+  }
+
+  /// Đổi refresh token lấy phiên mới và lưu lại. Không đổi trạng thái/notify.
+  Future<AuthSession?> _renew(AuthSession current) async {
     try {
       final renewed = await _service.refresh(current);
       if (_persist) await _storage.save(renewed);
-      _setSession(renewed);
-      return true;
+      return renewed;
     } catch (_) {
-      return false;
+      return null;
     }
   }
 
