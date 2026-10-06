@@ -10,6 +10,9 @@ enum AuthMode {
 
   /// Gọi backend Spring Boot của nhóm.
   spring,
+
+  /// Nối thẳng Firebase (Authentication + Firestore), không cần backend/SQL Server.
+  firebase,
 }
 
 /// Nơi lưu phiên đăng nhập.
@@ -37,11 +40,13 @@ enum GoogleMode {
 /// Cấu hình tập trung. Đổi giá trị ở đây rồi hot restart để áp dụng.
 abstract final class AppConfig {
   /// Mặc định là mock. Đổi chế độ không cần sửa code:
-  /// `flutter run --dart-define=AUTH_MODE=spring` (hoặc `dummyjson`).
+  /// `flutter run --dart-define=AUTH_MODE=spring` (hoặc `dummyjson`, `firebase`).
   static const String _authModeName = String.fromEnvironment('AUTH_MODE');
 
   static const AuthMode authMode = _authModeName == 'spring'
       ? AuthMode.spring
+      : _authModeName == 'firebase'
+      ? AuthMode.firebase
       : _authModeName == 'dummyjson'
       ? AuthMode.dummyJson
       : AuthMode.mock;

@@ -27,6 +27,7 @@ Chọn bằng `--dart-define` (xem `lib/config/app_config.dart`), phải chạy 
 | _(bỏ trống)_     | Mock trên máy, không cần mạng          | Luôn là `123456`            | Có             |
 | `dummyjson`      | API công khai https://dummyjson.com    | Không                       | Không          |
 | `spring`         | Backend Spring Boot của nhóm           | Gửi qua email thật          | Có             |
+| `firebase`       | Firebase Auth + Firestore, không backend (xem `docs/FIREBASE_DIRECT_MODE.md`) | Liên kết email của Firebase | Có (thật) |
 
 | `GOOGLE_MODE`    | Nút "Đăng nhập với Google"                                             |
 | ---------------- | ---------------------------------------------------------------------- |

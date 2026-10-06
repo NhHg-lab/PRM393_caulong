@@ -1,0 +1,32 @@
+rules_version = '2';
+
+// Courtly - Security Rules cho chế độ AUTH_MODE=firebase.
+// Dán vào Firebase Console > Firestore Database > Rules > Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Mỗi người dùng chỉ đọc/ghi hồ sơ của chính mình.
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // Tự tạo hồ sơ: vai trò bắt buộc là CUSTOMER, email phải khớp tài khoản đăng nhập.
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.role == 'CUSTOMER'
+        && request.resource.data.email == request.auth.token.email.lower();
+
+      // Được sửa tên, SĐT, ảnh; KHÔNG được đổi role hay email (chống tự phong ADMIN).
+      allow update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.email == resource.data.email;
+
+      allow delete: if false;
+    }
+
+    // Mọi collection khác bị chặn.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

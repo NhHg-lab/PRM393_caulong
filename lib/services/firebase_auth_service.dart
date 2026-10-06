@@ -9,7 +9,9 @@ import '../models/auth_models.dart';
 /// Khởi tạo Firebase khi (và chỉ khi) đã bật Google Sign-In.
 /// Không bao giờ ném lỗi: thiếu google-services.json thì app vẫn chạy bình thường.
 Future<void> initFirebaseIfEnabled() async {
-  if (!AppConfig.enableGoogleSignIn) return;
+  if (!AppConfig.enableGoogleSignIn && AppConfig.authMode != AuthMode.firebase) {
+    return;
+  }
   try {
     // TODO(FIREBASE): nếu dùng FlutterFire CLI, đổi thành
     // Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform).
