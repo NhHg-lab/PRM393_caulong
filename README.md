@@ -28,6 +28,7 @@ Chọn bằng `--dart-define` (xem `lib/config/app_config.dart`), phải chạy 
 | `dummyjson`      | API công khai https://dummyjson.com    | Không                       | Không          |
 | `spring`         | Backend Spring Boot của nhóm           | Gửi qua email thật          | Có             |
 | `firebase`       | Firebase Auth + Firestore, không backend (xem `docs/FIREBASE_DIRECT_MODE.md`) | Liên kết email của Firebase | Có (thật) |
+| `firebaseOtp`    | Backend gửi OTP, account/phiên lưu trên Firebase (xem `docs/FIREBASE_OTP_MODE.md`) | OTP 6 số qua Gmail | Có (thật) |
 
 | `GOOGLE_MODE`    | Nút "Đăng nhập với Google"                                             |
 | ---------------- | ---------------------------------------------------------------------- |
@@ -73,6 +74,7 @@ flutter run                                                          # mock, Goo
 flutter run --dart-define=GOOGLE_MODE=mock                           # offline hoàn toàn (demo/lab)
 flutter run --dart-define=AUTH_MODE=spring                           # backend Spring
 flutter run --dart-define=AUTH_MODE=spring --dart-define=GOOGLE_MODE=mock
+flutter run --dart-define=AUTH_MODE=firebaseOtp                      # OTP backend + account Firebase
 ```
 
 Android emulator gọi backend ở `http://10.0.2.2:8080`, các nền tảng khác dùng
@@ -89,6 +91,7 @@ Các luồng đặt sân, thanh toán và quản trị hiện vẫn dùng dữ l
 - [docs/AUTH_MODULE.md](docs/AUTH_MODULE.md): kiến trúc module xác thực, các luồng,
   hợp đồng API, biện pháp bảo mật, khắc phục sự cố
 - [docs/FIREBASE_SETUP.md](docs/FIREBASE_SETUP.md): cấu hình Firebase / Google Sign-In
+- [docs/FIREBASE_OTP_MODE.md](docs/FIREBASE_OTP_MODE.md): OTP Gmail nhưng lưu account trên Firebase
 - [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md): kịch bản demo "Bảo mật tài khoản"
 - [docs/LAB_SUGGESTIONS.md](docs/LAB_SUGGESTIONS.md): đề xuất 3 bài lab (bản nháp)
 

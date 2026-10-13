@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:firebase_core/firebase_core.dart';
+import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
 import '../models/auth_models.dart';
@@ -109,7 +111,9 @@ class FirebaseDirectAuthService implements AuthService {
 
   @override
   Future<OtpSent> sendPasswordResetOtp(String email) async {
-    throw const AuthException('Chế độ Firebase đặt lại mật khẩu bằng liên kết email.');
+    throw const AuthException(
+      'Chế độ Firebase đặt lại mật khẩu bằng liên kết email.',
+    );
   }
 
   @override
@@ -118,7 +122,9 @@ class FirebaseDirectAuthService implements AuthService {
     required String otp,
     required String newPassword,
   }) async {
-    throw const AuthException('Chế độ Firebase đặt lại mật khẩu bằng liên kết email.');
+    throw const AuthException(
+      'Chế độ Firebase đặt lại mật khẩu bằng liên kết email.',
+    );
   }
 
   /// Gửi email chứa liên kết đặt lại mật khẩu. Firebase trả thành công kể cả khi
@@ -132,7 +138,9 @@ class FirebaseDirectAuthService implements AuthService {
   /// FirebaseAuthService.signInWithGoogle), nên chỉ cần lấy người dùng hiện tại.
   /// [idToken] không cần gửi đi đâu vì không có backend.
   @override
-  Future<AuthSession> loginWithGoogleIdToken(String idToken) => _guard(() async {
+  Future<AuthSession> loginWithGoogleIdToken(
+    String idToken,
+  ) => _guard(() async {
     if (MockGoogleAccount.parse(idToken) != null) {
       throw const AuthException(
         'Chế độ Firebase cần GOOGLE_MODE=firebase, không dùng được Google giả.',
@@ -197,10 +205,10 @@ class FirebaseDirectAuthService implements AuthService {
   Future<fb.User?> _currentUser() async {
     final current = _auth.currentUser;
     if (current != null) return current;
-    return _auth
-        .authStateChanges()
-        .first
-        .timeout(const Duration(seconds: 3), onTimeout: () => null);
+    return _auth.authStateChanges().first.timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => null,
+    );
   }
 
   Future<AuthSession> _sessionFor(
@@ -215,12 +223,15 @@ class FirebaseDirectAuthService implements AuthService {
     return AuthSession(
       accessToken: token,
       refreshToken: null,
-      expiresAt: DateTime.now().add(_tokenLifetime),
+      expiresAt: DateTime.now().add(FirebaseDirectAuthService._tokenLifetime),
       user: profile,
     );
   }
 
-  Future<AppUser> _loadOrCreateProfile(fb.User user, String authProvider) async {
+  Future<AppUser> _loadOrCreateProfile(
+    fb.User user,
+    String authProvider,
+  ) async {
     final reference = _db.collection(usersCollection).doc(user.uid);
     final snapshot = await reference.get();
     if (snapshot.exists) {
@@ -291,6 +302,95 @@ class FirebaseDirectAuthService implements AuthService {
       throw mapFirestoreError(error.code);
     } on TimeoutException {
       throw AuthException.timeout;
+    }
+  }
+}
+
+/// Chế độ `AUTH_MODE=firebaseOtp`: backend chỉ đảm nhiệm gửi/kiểm tra OTP và
+/// tạo Firebase Authentication user. Sau đó Flutter đăng nhập Firebase bằng
+/// custom token; phiên và hồ sơ vẫn dùng Firebase/Firestore như chế độ direct.
+class FirebaseOtpAuthService extends FirebaseDirectAuthService {
+  FirebaseOtpAuthService({
+    http.Client? client,
+    String? apiBaseUrl,
+    super.auth,
+    super.firestore,
+  }) : _client = client ?? http.Client(),
+       _apiBaseUrl = apiBaseUrl ?? AppConfig.apiBaseUrl;
+
+  final http.Client _client;
+  final String _apiBaseUrl;
+
+  Uri _uri(String path) => Uri.parse('$_apiBaseUrl$path');
+
+  @override
+  bool get requiresSignupOtp => true;
+
+  @override
+  Future<OtpSent> sendRegisterOtp(String email) async {
+    final json = await _postJson('/auth/firebase/register/send-otp', {
+      'email': email.trim(),
+    });
+    return OtpSent.fromJson(json);
+  }
+
+  @override
+  Future<AuthSession> signup(SignupRequest request) => _guard(() async {
+    final json = await _postJson('/auth/firebase/register', request.toJson());
+    final customToken = json['customToken'] as String?;
+    if (customToken == null || customToken.isEmpty) {
+      throw const AuthException('Backend không trả về Firebase custom token.');
+    }
+
+    final credential = await _auth.signInWithCustomToken(customToken);
+    final user = _requireUser(credential);
+    final profile = await _createProfile(
+      user,
+      fullName: request.fullName,
+      phone: request.phone,
+      authProvider: 'LOCAL',
+    );
+    final idToken = await user.getIdToken();
+    if (idToken == null) {
+      throw const AuthException('Không lấy được ID token từ Firebase.');
+    }
+    return AuthSession(
+      accessToken: idToken,
+      refreshToken: null,
+      expiresAt: DateTime.now().add(FirebaseDirectAuthService._tokenLifetime),
+      user: profile,
+    );
+  });
+
+  Future<Map<String, dynamic>> _postJson(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    late final http.Response response;
+    try {
+      response = await _client
+          .post(
+            _uri(path),
+            headers: const {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(AppConfig.requestTimeout);
+    } on TimeoutException {
+      throw AuthException.timeout;
+    } on http.ClientException {
+      throw AuthException.network;
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AuthException.fromHttp(response.statusCode, response.body);
+    }
+    try {
+      return jsonDecode(utf8.decode(response.bodyBytes))
+          as Map<String, dynamic>;
+    } on FormatException {
+      throw const AuthException('Phản hồi từ backend không hợp lệ.');
     }
   }
 }

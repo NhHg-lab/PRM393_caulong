@@ -391,7 +391,8 @@ class _AuthScreenState extends State<AuthScreen> {
   /// Mở màn quên mật khẩu. Thành công thì màn đó trả về email vừa đặt lại
   /// để điền sẵn vào ô đăng nhập.
   Future<void> _openForgotPassword() async {
-    if (AppConfig.authMode == AuthMode.firebase) {
+    if (AppConfig.authMode == AuthMode.firebase ||
+        AppConfig.authMode == AuthMode.firebaseOtp) {
       await _sendFirebaseResetLink(_identifierController.text.trim());
       return;
     }
@@ -436,7 +437,8 @@ class _AuthScreenState extends State<AuthScreen> {
             child: const Text('Huỷ'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
             child: const Text('Gửi liên kết'),
           ),
         ],
