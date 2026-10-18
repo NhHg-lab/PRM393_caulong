@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'screens/admin_dashboard.dart';
 import 'screens/auth_screen.dart';
-import 'screens/customer_app.dart';
+import 'screens/shuttlezone/customer_app.dart';
 import 'screens/splash_screen.dart';
 import 'services/auth_manager.dart';
 import 'services/firebase_auth_service.dart';

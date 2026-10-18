@@ -16,6 +16,34 @@ void main() {
     late MockAuthService service;
     setUp(() => service = MockAuthService(latency: Duration.zero));
 
+    test(
+      'ShuttleZone player account works in fresh mock service instances',
+      () async {
+        for (var attempt = 0; attempt < 2; attempt++) {
+          final freshService = MockAuthService(latency: Duration.zero);
+          final session = await freshService.login(
+            const LoginRequest(
+              identifier: 'player@shuttlezone.test',
+              password: 'Shuttle@123',
+            ),
+          );
+          expect(session.user.fullName, 'Người chơi ShuttleZone');
+          expect(session.user.role, UserRole.customer);
+          expect(session.isExpired, isFalse);
+        }
+        await expectLater(
+          service.login(
+            const LoginRequest(
+              identifier: 'player@shuttlezone.test',
+              password: 'wrong',
+            ),
+          ),
+          throwsA(
+            isA<AuthException>().having((e) => e.statusCode, 'statusCode', 401),
+          ),
+        );
+      },
+    );
     test('logs in the demo customer by email or phone', () async {
       final byEmail = await service.login(
         const LoginRequest(identifier: 'DEMO@courtly.vn', password: '123456'),

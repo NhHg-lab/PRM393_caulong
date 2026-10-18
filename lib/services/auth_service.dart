@@ -93,6 +93,14 @@ class MockAuthService implements AuthService {
         phone: '0912345678',
       ),
     ),
+    'player@shuttlezone.test': (
+      'Shuttle@123',
+      const AppUser(
+        id: 'U-SHUTTLE-001',
+        fullName: 'Người chơi ShuttleZone',
+        email: 'player@shuttlezone.test',
+      ),
+    ),
     adminEmail: (
       adminPassword,
       const AppUser(

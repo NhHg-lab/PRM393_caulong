@@ -86,13 +86,14 @@ void main() {
     expect(find.text('Sân gần bạn'), findsOneWidget);
     expect(find.byKey(const Key('quick-book-button')), findsOneWidget);
 
-    await tester.tap(find.text('Cá nhân'));
+    await tester.tap(find.text('Tài khoản'));
     await tester.pumpAndSettle();
     expect(find.text('Hoàng Nam'), findsOneWidget);
     expect(find.text('demo@courtly.vn'), findsOneWidget);
     expect(find.byKey(const Key('open-admin-button')), findsNothing);
 
     await tester.ensureVisible(find.byKey(const Key('logout-button')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('logout-button')));
     await tester.pumpAndSettle();
     expect(find.text('Sân xịn đang\nchờ bạn.'), findsOneWidget);
