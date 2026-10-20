@@ -10,6 +10,10 @@ import 'google_token_provider.dart';
 
 /// Hợp đồng chung cho mọi nguồn xác thực. UI không gọi trực tiếp lớp này,
 /// mà đi qua AuthManager.
+abstract interface class PasswordResetLinkService {
+  Future<void> sendPasswordResetLink(String email);
+}
+
 abstract class AuthService {
   Future<AuthSession> login(LoginRequest request);
 

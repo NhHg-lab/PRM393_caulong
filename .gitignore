@@ -53,3 +53,5 @@ app.*.map.json
 
 # Local emulator QA captures
 courtly-*.png
+tools/rules-tests/node_modules/
+*-debug.log

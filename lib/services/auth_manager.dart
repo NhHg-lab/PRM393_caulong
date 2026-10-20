@@ -43,7 +43,9 @@ class AuthManager extends ChangeNotifier {
   AuthSession? get session => _session;
   AppUser? get currentUser => _session?.user;
   bool get isAuthenticated => _status == AuthStatus.authenticated;
-  bool get isAdmin => isAuthenticated && (currentUser?.isAdmin ?? false);
+  bool _roleVerified = false;
+  bool get isAdmin =>
+      isAuthenticated && _roleVerified && (currentUser?.isAdmin ?? false);
   LoginRequest get demoAccount => _service.demoAccount;
 
   /// Gọi một lần lúc mở app. Phiên hết hạn sẽ được thử refresh, sau đó hồ sơ
@@ -78,20 +80,26 @@ class AuthManager extends ChangeNotifier {
       _setSession(null);
       return;
     }
-    _setSession(synced);
+    _setSession(synced, roleVerified: _roleVerified);
   }
 
   /// Lấy hồ sơ/role mới nhất từ server và lưu lại.
   /// - 401/403 (tài khoản bị khoá/xoá, phiên bị thu hồi): trả về null để đăng xuất.
   /// - Lỗi mạng/timeout: giữ phiên đã lưu, không bắt đăng nhập lại khi offline.
   Future<AuthSession?> _syncProfile(AuthSession session) async {
+    _roleVerified = false;
     try {
       final user = await _service
           .fetchProfile(session)
           .timeout(AppConfig.profileSyncTimeout);
-      if (user == null) return session;
+      if (user == null) {
+        _roleVerified =
+            _service is MockAuthService || _service is DummyJsonAuthService;
+        return session;
+      }
       final updated = session.copyWith(user: user);
       await _storage.save(updated);
+      _roleVerified = true;
       return updated;
     } on AuthException catch (error) {
       if (error.statusCode == 401 || error.statusCode == 403) return null;
@@ -161,7 +169,7 @@ class AuthManager extends ChangeNotifier {
     if (current == null) return false;
     final renewed = await _renew(current);
     if (renewed == null) return false;
-    _setSession(renewed);
+    _setSession(renewed, roleVerified: _roleVerified);
     return true;
   }
 
@@ -180,20 +188,35 @@ class AuthManager extends ChangeNotifier {
   Future<void> logout() async {
     final current = _session;
     _setSession(null);
-    await _storage.clear();
-    if (current == null) return;
-    await _service.logout(current);
-    if (current.user.authProvider == 'GOOGLE') {
-      // Phiên khôi phục sau khi mở lại app không biết provider: suy ra từ cấu hình.
-      // Tài khoản Google giả không bao giờ gọi Firebase.
-      final provider =
-          _googleProvider ??
-          (AppConfig.googleMode == GoogleMode.firebase
-              ? const FirebaseGoogleTokenProvider()
-              : null);
-      _googleProvider = null;
-      await provider?.signOut();
+    // Each cleanup is independent: a failed server request must not retain SDK login.
+    try {
+      await _storage.clear();
+    } catch (_) {}
+    if (current != null) {
+      try {
+        await _service.logout(current);
+      } catch (_) {}
     }
+    final provider =
+        _googleProvider ??
+        (current?.user.authProvider == 'GOOGLE' &&
+                AppConfig.googleMode == GoogleMode.firebase
+            ? const FirebaseGoogleTokenProvider()
+            : null);
+    _googleProvider = null;
+    try {
+      await provider?.signOut();
+    } catch (_) {}
+  }
+
+  Future<void> sendPasswordResetLink(String email) {
+    final service = _service;
+    if (service is PasswordResetLinkService) {
+      return (service as PasswordResetLinkService).sendPasswordResetLink(email);
+    }
+    throw const AuthException(
+      'Chế độ này không hỗ trợ liên kết đặt lại mật khẩu.',
+    );
   }
 
   Future<AppUser> _signIn(
@@ -212,7 +235,8 @@ class AuthManager extends ChangeNotifier {
     return session.user;
   }
 
-  void _setSession(AuthSession? session) {
+  void _setSession(AuthSession? session, {bool roleVerified = true}) {
+    _roleVerified = session != null && roleVerified;
     _session = session;
     _status = session == null
         ? AuthStatus.unauthenticated
