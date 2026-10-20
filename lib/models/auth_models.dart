@@ -180,6 +180,10 @@ class OtpSent {
 }
 
 /// Lỗi xác thực với thông điệp tiếng Việt hiển thị trực tiếp cho người dùng.
+class AuthCancelled extends AuthException {
+  const AuthCancelled() : super('Đã hủy đăng nhập.');
+}
+
 class AuthException implements Exception {
   const AuthException(this.message, {this.statusCode, this.fieldErrors});
 

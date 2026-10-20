@@ -10,6 +10,10 @@ import 'google_token_provider.dart';
 
 /// Hợp đồng chung cho mọi nguồn xác thực. UI không gọi trực tiếp lớp này,
 /// mà đi qua AuthManager.
+abstract interface class PasswordResetLinkService {
+  Future<void> sendPasswordResetLink(String email);
+}
+
 abstract class AuthService {
   Future<AuthSession> login(LoginRequest request);
 
@@ -91,6 +95,14 @@ class MockAuthService implements AuthService {
         fullName: 'Hoàng Nam',
         email: demoEmail,
         phone: '0912345678',
+      ),
+    ),
+    'player@shuttlezone.test': (
+      'Shuttle@123',
+      const AppUser(
+        id: 'U-SHUTTLE-001',
+        fullName: 'Người chơi ShuttleZone',
+        email: 'player@shuttlezone.test',
       ),
     ),
     adminEmail: (

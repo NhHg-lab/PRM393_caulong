@@ -27,7 +27,7 @@ Chọn bằng `--dart-define` (xem `lib/config/app_config.dart`), phải chạy 
 | _(bỏ trống)_     | Mock trên máy, không cần mạng          | Luôn là `123456`            | Có             |
 | `dummyjson`      | API công khai https://dummyjson.com    | Không                       | Không          |
 | `spring`         | Backend Spring Boot của nhóm           | Gửi qua email thật          | Có             |
-| `firebase`       | Firebase Auth + Firestore, không backend (xem `docs/FIREBASE_DIRECT_MODE.md`) | Liên kết email của Firebase | Có (thật) |
+| `firebase`       | Firebase Auth + Firestore + Spring OTP (xem `docs/FIREBASE_DIRECT_MODE.md`) | Đăng ký OTP qua Spring; reset bằng liên kết Firebase | Có (thật) |
 
 | `GOOGLE_MODE`    | Nút "Đăng nhập với Google"                                             |
 | ---------------- | ---------------------------------------------------------------------- |
@@ -49,6 +49,9 @@ Nút "Khám phá với tài khoản demo" đăng nhập bằng tài khoản khá
 Phiên đăng nhập được lưu bằng `flutter_secure_storage` (Keystore/Keychain).
 
 ## Đăng nhập Google
+
+Ở chế độ chính `AUTH_MODE=firebase`, Google đăng nhập Firebase và app đọc hồ sơ
+Firestore trực tiếp. Sơ đồ đổi token dưới đây chỉ dành cho `AUTH_MODE=spring`.
 
 ```
 Google -> Firebase Auth -> Firebase ID token
@@ -97,3 +100,13 @@ Các luồng đặt sân, thanh toán và quản trị hiện vẫn dùng dữ l
 ```bash
 flutter test
 ```
+
+## Sprint 1 — kiến trúc và nghiệm thu
+
+- [Kiến trúc đã chốt](docs/SPRINT1_ARCHITECTURE.md)
+- [Hợp đồng backend OTP](docs/SPRINT1_OTP_CONTRACT.md)
+- [Mô hình dữ liệu](docs/DATA_MODEL.md)
+- [Kết quả kiểm thử và hướng dẫn nghiệm thu](docs/SPRINT1_ACCEPTANCE.md)
+
+Chế độ tích hợp chính: `AUTH_MODE=firebase`, cần Spring cho đăng ký OTP.
+Mặc định vẫn mock. Phiên cũ không có thông tin chế độ sẽ yêu cầu đăng nhập lại.

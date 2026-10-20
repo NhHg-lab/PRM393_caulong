@@ -1,3 +1,7 @@
+> Sprint 1: hướng dẫn Google → Spring JWT bên dưới dành cho `AUTH_MODE=spring`.
+> Chế độ chính `AUTH_MODE=firebase` dùng Firebase token trực tiếp; chỉ đăng ký OTP
+> cần Spring. Xem [cấu hình hiện hành](FIREBASE_DIRECT_MODE.md).
+
 # Hướng dẫn cấu hình Firebase cho Đăng nhập Google (Courtly)
 
 Google Sign-In **đã được bật** trong app: Firebase project đã tạo, `android/app/google-services.json` đã commit, plugin `google-services` đã bật trong Gradle, và `lib/config/app_config.dart` đã đặt `enableGoogleSignIn = true` cùng `googleServerClientId`.
