@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:firebase_core/firebase_core.dart';
+import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
 import '../models/auth_models.dart';
@@ -10,21 +12,31 @@ import 'auth_service.dart';
 import 'google_token_provider.dart';
 import 'registration_otp_client.dart';
 
-/// Firebase owns identity and Firestore profiles. Spring verifies registration OTP.
-/// Admin roles may only be assigned from a trusted administrative environment.
-class FirebaseDirectAuthService
-    implements AuthService, PasswordResetLinkService {
+/// Chế độ `AUTH_MODE=firebase`: Flutter nói chuyện thẳng với Firebase,
+/// KHÔNG qua backend Spring Boot và KHÔNG dùng SQL Server.
+///
+/// - Tài khoản/mật khẩu/Google: Firebase Authentication.
+/// - Hồ sơ (họ tên, SĐT, vai trò): Firestore, collection `users/{uid}`.
+/// - Đăng ký: gửi OTP 6 số qua email bằng API của backend Spring Boot
+///   (`/auth/register/send-otp`); khi mã đúng, backend tự tạo user Firebase và
+///   hồ sơ Firestore (`/auth/register/firebase`, Admin SDK). Backend không lưu user vào SQL.
+/// - Quên mật khẩu: Firebase gửi email chứa liên kết đặt lại mật khẩu.
+///
+/// Vai trò `ADMIN` chỉ gán được thủ công trong Firebase Console; Security Rules
+/// (firestore.rules) không cho người dùng tự đổi vai trò.
+class FirebaseDirectAuthService implements AuthService {
   FirebaseDirectAuthService({
     fb.FirebaseAuth? auth,
     FirebaseFirestore? firestore,
-    RegistrationOtpClient? registrationClient,
+    http.Client? client,
   }) : _authOverride = auth,
        _firestoreOverride = firestore,
-       _registration = registrationClient ?? RegistrationOtpClient();
+       _client = client ?? http.Client();
 
   final RegistrationOtpClient _registration;
   final fb.FirebaseAuth? _authOverride;
   final FirebaseFirestore? _firestoreOverride;
+  final http.Client _client;
 
   fb.FirebaseAuth get _auth => _authOverride ?? fb.FirebaseAuth.instance;
   FirebaseFirestore get _db => _firestoreOverride ?? FirebaseFirestore.instance;
@@ -58,28 +70,74 @@ class FirebaseDirectAuthService
     return _sessionFor(_requireUser(credential), authProvider: 'LOCAL');
   });
 
+  /// Đăng ký phải xác minh email bằng OTP 6 số do backend gửi.
   @override
   bool get requiresSignupOtp => true;
 
+  /// Bước 1: backend gửi mã OTP 6 số tới [email]. 409 nếu email đã dùng,
+  /// 429 nếu gửi quá nhanh/quá nhiều, 503 nếu backend chưa cấu hình mail.
   @override
-  Future<OtpSent> sendRegisterOtp(String email) => _registration.send(email);
+  Future<OtpSent> sendRegisterOtp(String email) async {
+    final response = await _postBackend('/auth/register/send-otp', {
+      'email': email.trim(),
+    });
+    return OtpSent.fromJson(_decodeBackend(response));
+  }
 
+  /// Bước 2: backend kiểm tra OTP rồi tự tạo tài khoản Firebase (Admin SDK) và hồ sơ
+  /// Firestore. App chỉ đăng nhập lại bằng tài khoản vừa tạo để lấy phiên.
   @override
-  Future<AuthSession> signup(SignupRequest request) async {
-    await _registration.register(request);
-    try {
-      return await login(
-        LoginRequest(
-          identifier: request.email.trim(),
-          password: request.password,
-        ),
-      );
-    } catch (_) {
-      try {
-        await _auth.signOut();
-      } catch (_) {}
-      throw RegistrationOtpClient.uncertainRegistration;
+  Future<AuthSession> signup(SignupRequest request) => _guard(() async {
+    final otp = request.otp;
+    if (otp == null || otp.isEmpty) {
+      throw const AuthException('Vui lòng nhập mã OTP.', statusCode: 400);
     }
+    final created = await _postBackend('/auth/register/firebase', {
+      'fullName': request.fullName.trim(),
+      'email': request.email.trim(),
+      if (request.phone != null && request.phone!.isNotEmpty)
+        'phone': request.phone,
+      'password': request.password,
+      'otp': otp,
+    });
+    _decodeBackend(created);
+
+    final credential = await _auth.signInWithEmailAndPassword(
+      email: request.email.trim(),
+      password: request.password,
+    );
+    return _sessionFor(_requireUser(credential), authProvider: 'LOCAL');
+  });
+
+  // ---- Backend OTP ---------------------------------------------------------
+
+  Future<http.Response> _postBackend(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    try {
+      return await _client
+          .post(
+            Uri.parse('${AppConfig.apiBaseUrl}$path'),
+            headers: const {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(AppConfig.requestTimeout);
+    } on TimeoutException {
+      throw AuthException.timeout;
+    } on http.ClientException {
+      throw AuthException.network;
+    }
+  }
+
+  Map<String, dynamic> _decodeBackend(http.Response response) {
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AuthException.fromHttp(response.statusCode, response.body);
+    }
+    return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
 
   // ---- Quên mật khẩu -------------------------------------------------------
