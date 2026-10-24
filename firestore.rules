@@ -22,7 +22,35 @@ service cloud.firestore {
       allow update: if owner(uid) && validProfile(request.resource.data)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'phone', 'avatarUrl']);
       allow delete: if false;
+
+      match /favorites/{venueId} {
+        allow read, write, delete: if owner(uid);
+      }
     }
+
+    match /venues/{venueId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    match /courts/{courtId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'HOLD'
+        && request.resource.data.createdAt == request.time;
+      allow update: if request.auth != null
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status == 'CANCELLED';
+      allow delete: if false;
+    }
+
     match /{document=**} { allow read, write: if false; }
   }
 }
