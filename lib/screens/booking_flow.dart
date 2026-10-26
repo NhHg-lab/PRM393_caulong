@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/demo_data.dart';
 import '../models/models.dart';
+import '../services/court_api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
 
@@ -10,26 +11,59 @@ class CourtBookingScreen extends StatefulWidget {
     super.key,
     required this.court,
     required this.onBooked,
+    this.useApi = false,
   });
   final Court court;
   final ValueChanged<Booking> onBooked;
+  final bool useApi;
 
   @override
   State<CourtBookingScreen> createState() => _CourtBookingScreenState();
 }
 
 class _CourtBookingScreenState extends State<CourtBookingScreen> {
-  int _date = 1;
-  int? _slot = 7;
+  final CourtApiService _api = CourtApiService();
+  late final List<DateTime> _dates;
+  late List<TimeSlot> _slots;
+  int _date = 0;
+  int? _slot;
+  bool _loadingSlots = false;
+  String? _slotError;
 
-  static const _dates = [
-    ('Hôm nay', '05'),
-    ('Thứ 3', '06'),
-    ('Thứ 4', '07'),
-    ('Thứ 5', '08'),
-    ('Thứ 6', '09'),
-    ('Thứ 7', '10'),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    final today = DateTime.now();
+    _dates = List.generate(
+      7,
+      (index) => DateTime(today.year, today.month, today.day + index),
+    );
+    _slots = widget.useApi ? <TimeSlot>[] : List.of(demoSlots);
+    _slot = widget.useApi ? null : 7;
+    if (widget.useApi) _loadSlots();
+  }
+
+  Future<void> _loadSlots() async {
+    setState(() {
+      _loadingSlots = true;
+      _slotError = null;
+      _slot = null;
+    });
+    try {
+      final slots = await _api.slots(widget.court.id, _dates[_date]);
+      if (!mounted) return;
+      setState(() {
+        _slots = slots;
+        _loadingSlots = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingSlots = false;
+        _slotError = error.toString();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -87,7 +121,10 @@ class _CourtBookingScreenState extends State<CourtBookingScreen> {
                 .toList(),
           ),
           const SizedBox(height: 28),
-          const SectionHeading(title: 'Chọn ngày', subtitle: 'Tháng 10, 2026'),
+          SectionHeading(
+            title: 'Chọn ngày',
+            subtitle: 'Tháng ${_dates[_date].month}, ${_dates[_date].year}',
+          ),
           const SizedBox(height: 14),
           SizedBox(
             height: 76,
@@ -99,7 +136,10 @@ class _CourtBookingScreenState extends State<CourtBookingScreen> {
                 final selected = _date == index;
                 return InkWell(
                   borderRadius: BorderRadius.circular(18),
-                  onTap: () => setState(() => _date = index),
+                  onTap: () {
+                    setState(() => _date = index);
+                    if (widget.useApi) _loadSlots();
+                  },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 160),
                     width: 65,
@@ -114,7 +154,7 @@ class _CourtBookingScreenState extends State<CourtBookingScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          _dates[index].$1,
+                          _dayLabel(_dates[index], index),
                           style: TextStyle(
                             fontSize: 11,
                             color: selected ? Colors.white70 : AppColors.muted,
@@ -122,7 +162,7 @@ class _CourtBookingScreenState extends State<CourtBookingScreen> {
                         ),
                         const SizedBox(height: 5),
                         Text(
-                          _dates[index].$2,
+                          _dates[index].day.toString().padLeft(2, '0'),
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w800,
@@ -142,54 +182,70 @@ class _CourtBookingScreenState extends State<CourtBookingScreen> {
             subtitle: 'Mỗi lượt kéo dài 90 phút',
           ),
           const SizedBox(height: 14),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              childAspectRatio: 2.05,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
+          if (_loadingSlots)
+            const Padding(
+              padding: EdgeInsets.all(28),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_slotError != null)
+            EmptyState(
+              icon: Icons.cloud_off_rounded,
+              title: 'Không tải được khung giờ',
+              message: _slotError!,
+              action: OutlinedButton(
+                onPressed: _loadSlots,
+                child: const Text('Thử lại'),
+              ),
+            )
+          else
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                childAspectRatio: 2.05,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+              ),
+              itemCount: _slots.length,
+              itemBuilder: (context, index) {
+                final slot = _slots[index];
+                final selected = _slot == index;
+                return InkWell(
+                  onTap: slot.available
+                      ? () => setState(() => _slot = index)
+                      : null,
+                  borderRadius: BorderRadius.circular(14),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    decoration: BoxDecoration(
+                      color: !slot.available
+                          ? const Color(0xFFECEFF1)
+                          : selected
+                          ? AppColors.lime
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: selected ? AppColors.lime : AppColors.line,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      slot.label,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: slot.available
+                            ? AppColors.navyDeep
+                            : const Color(0xFFAFB8BF),
+                        decoration: slot.available
+                            ? null
+                            : TextDecoration.lineThrough,
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
-            itemCount: demoSlots.length,
-            itemBuilder: (context, index) {
-              final slot = demoSlots[index];
-              final selected = _slot == index;
-              return InkWell(
-                onTap: slot.available
-                    ? () => setState(() => _slot = index)
-                    : null,
-                borderRadius: BorderRadius.circular(14),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  decoration: BoxDecoration(
-                    color: !slot.available
-                        ? const Color(0xFFECEFF1)
-                        : selected
-                        ? AppColors.lime
-                        : Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: selected ? AppColors.lime : AppColors.line,
-                    ),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    slot.label,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: slot.available
-                          ? AppColors.navyDeep
-                          : const Color(0xFFAFB8BF),
-                      decoration: slot.available
-                          ? null
-                          : TextDecoration.lineThrough,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
           const SizedBox(height: 12),
           const Row(
             children: [
@@ -259,18 +315,27 @@ class _CourtBookingScreenState extends State<CourtBookingScreen> {
   }
 
   Future<void> _openPayment(int price) async {
+    final slot = _slots[_slot!];
+    final date = _dates[_date];
     final booking = Booking(
-      id: 'BK261005',
+      id: 'PENDING',
       court: widget.court,
-      date: '${_dates[_date].$1}, ${_dates[_date].$2}/10/2026',
-      time: '${demoSlots[_slot!].label} – ${_endTime(demoSlots[_slot!].label)}',
+      date:
+          '${_dayLabel(date, _date)}, ${date.day.toString().padLeft(2, '0')}/'
+          '${date.month.toString().padLeft(2, '0')}/${date.year}',
+      time:
+          '${slot.label} – ${slot.endTime.isEmpty ? _endTime(slot.label) : slot.endTime}',
       total: price + 5000,
       status: BookingStatus.upcoming,
+      slotId: slot.id,
     );
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) =>
-            PaymentScreen(booking: booking, onPaid: widget.onBooked),
+        builder: (_) => PaymentScreen(
+          booking: booking,
+          onPaid: widget.onBooked,
+          useApi: widget.useApi,
+        ),
       ),
     );
   }
@@ -280,12 +345,24 @@ class _CourtBookingScreenState extends State<CourtBookingScreen> {
     final minutes = int.parse(parts[0]) * 60 + int.parse(parts[1]) + 90;
     return '${(minutes ~/ 60).toString().padLeft(2, '0')}:${(minutes % 60).toString().padLeft(2, '0')}';
   }
+
+  String _dayLabel(DateTime date, int index) {
+    if (index == 0) return 'Hôm nay';
+    const labels = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+    return labels[date.weekday - 1];
+  }
 }
 
 class PaymentScreen extends StatefulWidget {
-  const PaymentScreen({super.key, required this.booking, required this.onPaid});
+  const PaymentScreen({
+    super.key,
+    required this.booking,
+    required this.onPaid,
+    this.useApi = false,
+  });
   final Booking booking;
   final ValueChanged<Booking> onPaid;
+  final bool useApi;
 
   @override
   State<PaymentScreen> createState() => _PaymentScreenState();
@@ -293,6 +370,7 @@ class PaymentScreen extends StatefulWidget {
 
 class _PaymentScreenState extends State<PaymentScreen> {
   int _payment = 0;
+  bool _paying = false;
 
   @override
   Widget build(BuildContext context) {
@@ -443,20 +521,42 @@ class _PaymentScreenState extends State<PaymentScreen> {
         ),
         child: FilledButton(
           key: const Key('pay-button'),
-          onPressed: _pay,
-          child: Text('Thanh toán ${formatVnd(widget.booking.total)}'),
+          onPressed: _paying ? null : _pay,
+          child: _paying
+              ? const SizedBox.square(
+                  dimension: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text('Thanh toán ${formatVnd(widget.booking.total)}'),
         ),
       ),
     );
   }
 
-  void _pay() {
-    widget.onPaid(widget.booking);
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => BookingSuccessScreen(booking: widget.booking),
-      ),
-    );
+  Future<void> _pay() async {
+    setState(() => _paying = true);
+    try {
+      const methods = ['MOMO', 'VNPAY', 'AT_COURT'];
+      final booking = widget.useApi
+          ? await CourtApiService().createBooking(
+              slotId: widget.booking.slotId!,
+              paymentMethod: methods[_payment],
+            )
+          : widget.booking;
+      widget.onPaid(booking);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => BookingSuccessScreen(booking: booking),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Thanh toán/đặt sân thất bại: $error')),
+      );
+      setState(() => _paying = false);
+    }
   }
 }
 

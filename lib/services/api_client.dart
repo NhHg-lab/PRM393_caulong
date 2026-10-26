@@ -29,6 +29,9 @@ class ApiClient {
   Future<http.Response> put(String path, {Object? body}) =>
       _send('PUT', path, body: body);
 
+  Future<http.Response> patch(String path, {Object? body}) =>
+      _send('PATCH', path, body: body);
+
   Future<http.Response> delete(String path) => _send('DELETE', path);
 
   /// Tiện ích: gửi GET và giải mã JSON, ném [AuthException] khi lỗi.

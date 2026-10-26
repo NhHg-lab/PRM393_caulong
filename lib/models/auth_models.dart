@@ -34,6 +34,20 @@ class AppUser {
 
   bool get isAdmin => role == UserRole.admin;
 
+  AppUser copyWith({
+    String? fullName,
+    String? phone,
+    bool clearPhone = false,
+  }) => AppUser(
+    id: id,
+    fullName: fullName ?? this.fullName,
+    email: email,
+    phone: clearPhone ? null : phone ?? this.phone,
+    role: role,
+    avatarUrl: avatarUrl,
+    authProvider: authProvider,
+  );
+
   /// Chữ cái đầu của 2 từ cuối, ví dụ "Hoàng Nam" -> "HN".
   String get initials {
     final parts = fullName.trim().split(RegExp(r'\s+'));

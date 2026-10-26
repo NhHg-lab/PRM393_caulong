@@ -307,8 +307,9 @@ class FirebaseDirectAuthService implements AuthService {
 }
 
 /// Chế độ `AUTH_MODE=firebaseOtp`: backend chỉ đảm nhiệm gửi/kiểm tra OTP và
-/// tạo Firebase Authentication user. Sau đó Flutter đăng nhập Firebase bằng
-/// custom token; phiên và hồ sơ vẫn dùng Firebase/Firestore như chế độ direct.
+/// tạo Firebase Authentication user. Sau khi đăng nhập Firebase, ID token được
+/// đổi qua `/auth/firebase` để nhận JWT/refresh token Courtly dùng cho toàn bộ
+/// API sân, booking và admin.
 class FirebaseOtpAuthService extends FirebaseDirectAuthService {
   FirebaseOtpAuthService({
     http.Client? client,
@@ -322,6 +323,15 @@ class FirebaseOtpAuthService extends FirebaseDirectAuthService {
   final String _apiBaseUrl;
 
   Uri _uri(String path) => Uri.parse('$_apiBaseUrl$path');
+
+  SpringAuthService get _backend =>
+      SpringAuthService(client: _client, apiBaseUrl: _apiBaseUrl);
+
+  @override
+  Future<AuthSession> login(LoginRequest request) async {
+    final firebaseSession = await super.login(request);
+    return _exchangeFirebaseToken(firebaseSession.accessToken);
+  }
 
   @override
   bool get requiresSignupOtp => true;
@@ -344,7 +354,7 @@ class FirebaseOtpAuthService extends FirebaseDirectAuthService {
 
     final credential = await _auth.signInWithCustomToken(customToken);
     final user = _requireUser(credential);
-    final profile = await _createProfile(
+    await _createProfile(
       user,
       fullName: request.fullName,
       phone: request.phone,
@@ -354,13 +364,32 @@ class FirebaseOtpAuthService extends FirebaseDirectAuthService {
     if (idToken == null) {
       throw const AuthException('Không lấy được ID token từ Firebase.');
     }
-    return AuthSession(
-      accessToken: idToken,
-      refreshToken: null,
-      expiresAt: DateTime.now().add(FirebaseDirectAuthService._tokenLifetime),
-      user: profile,
-    );
+    return _exchangeFirebaseToken(idToken);
   });
+
+  @override
+  Future<AuthSession> loginWithGoogleIdToken(String idToken) async {
+    final firebaseSession = await super.loginWithGoogleIdToken(idToken);
+    return _exchangeFirebaseToken(firebaseSession.accessToken);
+  }
+
+  @override
+  Future<AuthSession> refresh(AuthSession current) => _backend.refresh(current);
+
+  @override
+  Future<AppUser?> fetchProfile(AuthSession session) =>
+      _backend.fetchProfile(session);
+
+  @override
+  Future<void> logout(AuthSession session) async {
+    await _backend.logout(session);
+    await super.logout(session);
+  }
+
+  Future<AuthSession> _exchangeFirebaseToken(String idToken) async {
+    final json = await _postJson('/auth/firebase', {'idToken': idToken});
+    return AuthSession.fromAuthResponse(json);
+  }
 
   Future<Map<String, dynamic>> _postJson(
     String path,

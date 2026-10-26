@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../data/demo_data.dart';
 import '../models/auth_models.dart';
 import '../models/models.dart';
+import '../services/court_api_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/validators.dart';
 import '../widgets/common_widgets.dart';
 import 'booking_flow.dart';
 
@@ -26,13 +28,45 @@ class CustomerApp extends StatefulWidget {
 
 class _CustomerAppState extends State<CustomerApp> {
   int _tab = 0;
-  late List<Booking> _bookings;
+  final CourtApiService _api = CourtApiService();
+  List<Court> _courts = List.of(demoCourts);
+  List<Booking> _bookings = List.of(initialBookings);
   final Set<String> _favorites = {'CR01'};
+  late AppUser _profileUser;
+  bool _loading = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _bookings = List.of(initialBookings);
+    _profileUser = widget.user;
+    if (CourtApiService.isEnabled) _loadRemoteData();
+  }
+
+  Future<void> _loadRemoteData() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final courts = await _api.courts();
+      final bookings = await _api.bookings();
+      if (!mounted) return;
+      setState(() {
+        _courts = courts;
+        _bookings = bookings;
+        _favorites
+          ..clear()
+          ..addAll(courts.where((c) => c.isFavorite).map((c) => c.id));
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.toString();
+      });
+    }
   }
 
   void _book(Court court) {
@@ -40,6 +74,7 @@ class _CustomerAppState extends State<CustomerApp> {
       MaterialPageRoute(
         builder: (_) => CourtBookingScreen(
           court: court,
+          useApi: CourtApiService.isEnabled,
           onBooked: (booking) => setState(() {
             _bookings.removeWhere((item) => item.id == booking.id);
             _bookings.insert(0, booking);
@@ -51,8 +86,25 @@ class _CustomerAppState extends State<CustomerApp> {
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (_error != null) {
+      return Scaffold(
+        body: EmptyState(
+          icon: Icons.cloud_off_rounded,
+          title: 'Không tải được dữ liệu sân',
+          message: _error!,
+          action: FilledButton(
+            onPressed: _loadRemoteData,
+            child: const Text('Thử lại'),
+          ),
+        ),
+      );
+    }
     final pages = [
       HomeScreen(
+        courts: _courts,
         onBook: _book,
         favorites: _favorites,
         onToggleFavorite: _toggleFavorite,
@@ -63,14 +115,16 @@ class _CustomerAppState extends State<CustomerApp> {
         onBookAgain: _book,
       ),
       FavoritesScreen(
+        courts: _courts,
         favorites: _favorites,
         onBook: _book,
         onToggleFavorite: _toggleFavorite,
       ),
       ProfileScreen(
-        user: widget.user,
+        user: _profileUser,
         onLogout: widget.onLogout,
         onOpenAdmin: widget.onOpenAdmin,
+        onUpdateProfile: _updateProfile,
       ),
     ];
     return Scaffold(
@@ -112,22 +166,46 @@ class _CustomerAppState extends State<CustomerApp> {
     );
   }
 
-  void _toggleFavorite(String id) {
-    setState(
-      () =>
-          _favorites.contains(id) ? _favorites.remove(id) : _favorites.add(id),
-    );
-  }
-
-  void _cancelBooking(Booking booking) {
-    final index = _bookings.indexWhere((item) => item.id == booking.id);
-    if (index >= 0) {
-      setState(
-        () => _bookings[index] = booking.copyWith(
-          status: BookingStatus.cancelled,
-        ),
+  Future<void> _toggleFavorite(String id) async {
+    final favorite = !_favorites.contains(id);
+    setState(() => favorite ? _favorites.add(id) : _favorites.remove(id));
+    if (!CourtApiService.isEnabled) return;
+    try {
+      await _api.setFavorite(id, favorite);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => favorite ? _favorites.remove(id) : _favorites.add(id));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Không cập nhật được yêu thích: $error')),
       );
     }
+  }
+
+  Future<void> _cancelBooking(Booking booking) async {
+    final updated = CourtApiService.isEnabled
+        ? await _api.cancelBooking(booking.id)
+        : booking.copyWith(status: BookingStatus.cancelled);
+    final index = _bookings.indexWhere((item) => item.id == booking.id);
+    if (index >= 0) {
+      setState(() => _bookings[index] = updated);
+    }
+  }
+
+  Future<void> _updateProfile(String fullName, String? phone) async {
+    final normalizedPhone = phone == null || phone.trim().isEmpty
+        ? null
+        : Validators.normalizePhone(phone.trim());
+    final updated = CourtApiService.isEnabled
+        ? await _api.updateProfile(
+            fullName: fullName.trim(),
+            phone: normalizedPhone,
+          )
+        : _profileUser.copyWith(
+            fullName: fullName.trim(),
+            phone: normalizedPhone,
+            clearPhone: normalizedPhone == null,
+          );
+    if (mounted) setState(() => _profileUser = updated);
   }
 }
 
@@ -135,10 +213,12 @@ class HomeScreen extends StatelessWidget {
   const HomeScreen({
     super.key,
     required this.onBook,
+    required this.courts,
     required this.favorites,
     required this.onToggleFavorite,
   });
   final ValueChanged<Court> onBook;
+  final List<Court> courts;
   final Set<String> favorites;
   final ValueChanged<String> onToggleFavorite;
 
@@ -237,7 +317,8 @@ class HomeScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  _QuickBooking(onPressed: () => onBook(demoCourts.first)),
+                  if (courts.isNotEmpty)
+                    _QuickBooking(onPressed: () => onBook(courts.first)),
                   const SizedBox(height: 30),
                   const SectionHeading(
                     title: 'Sân gần bạn',
@@ -250,16 +331,16 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
           SliverList.separated(
-            itemCount: demoCourts.length,
+            itemCount: courts.length,
             separatorBuilder: (_, _) => const SizedBox(height: 14),
             itemBuilder: (context, index) {
-              final court = demoCourts[index];
+              final court = courts[index];
               return Padding(
                 padding: EdgeInsets.fromLTRB(
                   20,
                   0,
                   20,
-                  index == demoCourts.length - 1 ? 28 : 0,
+                  index == courts.length - 1 ? 28 : 0,
                 ),
                 child: CourtCard(
                   court: court,
@@ -505,7 +586,7 @@ class BookingListScreen extends StatefulWidget {
     required this.onBookAgain,
   });
   final List<Booking> bookings;
-  final ValueChanged<Booking> onCancel;
+  final Future<void> Function(Booking) onCancel;
   final ValueChanged<Court> onBookAgain;
 
   @override
@@ -636,11 +717,17 @@ class _BookingListScreenState extends State<BookingListScreen> {
       ),
     );
     if (confirmed == true) {
-      widget.onCancel(booking);
-      if (mounted) {
+      try {
+        await widget.onCancel(booking);
+        if (!mounted) return;
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Đã hủy sân thành công.')));
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Không hủy được sân: $error')));
       }
     }
   }
@@ -796,17 +883,19 @@ class _BookingCard extends StatelessWidget {
 class FavoritesScreen extends StatelessWidget {
   const FavoritesScreen({
     super.key,
+    required this.courts,
     required this.favorites,
     required this.onBook,
     required this.onToggleFavorite,
   });
+  final List<Court> courts;
   final Set<String> favorites;
   final ValueChanged<Court> onBook;
   final ValueChanged<String> onToggleFavorite;
 
   @override
   Widget build(BuildContext context) {
-    final courts = demoCourts
+    final favoriteCourts = courts
         .where((court) => favorites.contains(court.id))
         .toList();
     return SafeArea(
@@ -823,12 +912,12 @@ class FavoritesScreen extends StatelessWidget {
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
                 const SizedBox(height: 6),
-                Text('${courts.length} địa điểm bạn đã lưu'),
+                Text('${favoriteCourts.length} địa điểm bạn đã lưu'),
               ],
             ),
           ),
           Expanded(
-            child: courts.isEmpty
+            child: favoriteCourts.isEmpty
                 ? const EmptyState(
                     icon: Icons.favorite_border_rounded,
                     title: 'Chưa có sân yêu thích',
@@ -836,13 +925,14 @@ class FavoritesScreen extends StatelessWidget {
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
-                    itemCount: courts.length,
+                    itemCount: favoriteCourts.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 14),
                     itemBuilder: (context, index) => CourtCard(
-                      court: courts[index],
+                      court: favoriteCourts[index],
                       favorite: true,
-                      onFavorite: () => onToggleFavorite(courts[index].id),
-                      onTap: () => onBook(courts[index]),
+                      onFavorite: () =>
+                          onToggleFavorite(favoriteCourts[index].id),
+                      onTap: () => onBook(favoriteCourts[index]),
                     ),
                   ),
           ),
@@ -857,10 +947,12 @@ class ProfileScreen extends StatelessWidget {
     super.key,
     required this.user,
     required this.onLogout,
+    required this.onUpdateProfile,
     this.onOpenAdmin,
   });
   final AppUser user;
   final VoidCallback onLogout;
+  final Future<void> Function(String fullName, String? phone) onUpdateProfile;
   final VoidCallback? onOpenAdmin;
 
   @override
@@ -910,7 +1002,7 @@ class ProfileScreen extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    onPressed: () {},
+                    onPressed: () => _editProfile(context),
                     icon: const Icon(Icons.edit_outlined),
                   ),
                 ],
@@ -934,7 +1026,7 @@ class ProfileScreen extends StatelessWidget {
                 _ProfileTile(
                   icon: Icons.person_outline_rounded,
                   label: 'Thông tin cá nhân',
-                  onTap: () {},
+                  onTap: () => _editProfile(context),
                 ),
                 const Divider(height: 1, indent: 66),
                 _ProfileTile(
@@ -1030,6 +1122,91 @@ class ProfileScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _editProfile(BuildContext context) async {
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController(text: user.fullName);
+    final phoneController = TextEditingController(text: user.phone ?? '');
+    var busy = false;
+    String? error;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: !busy,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Thông tin cá nhân'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: nameController,
+                  enabled: !busy,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(labelText: 'Họ và tên'),
+                  validator: Validators.fullName,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: phoneController,
+                  enabled: !busy,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Số điện thoại (không bắt buộc)',
+                  ),
+                  validator: Validators.optionalPhone,
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(error!, style: const TextStyle(color: AppColors.danger)),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: busy ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Hủy'),
+            ),
+            FilledButton(
+              onPressed: busy
+                  ? null
+                  : () async {
+                      if (formKey.currentState?.validate() != true) return;
+                      setDialogState(() {
+                        busy = true;
+                        error = null;
+                      });
+                      try {
+                        await onUpdateProfile(
+                          nameController.text,
+                          phoneController.text,
+                        );
+                        if (dialogContext.mounted) Navigator.pop(dialogContext);
+                      } catch (exception) {
+                        setDialogState(() {
+                          busy = false;
+                          error = exception is AuthException
+                              ? exception.message
+                              : exception.toString();
+                        });
+                      }
+                    },
+              child: busy
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Lưu'),
+            ),
+          ],
+        ),
+      ),
+    );
+    nameController.dispose();
+    phoneController.dispose();
   }
 }
 
