@@ -68,12 +68,15 @@ class FirebaseAuthService {
       }
       return firebaseIdToken;
     } on GoogleSignInException catch (error) {
-      throw AuthException(
-        error.code == GoogleSignInExceptionCode.canceled
-            ? 'Bạn đã huỷ đăng nhập Google.'
-            : 'Đăng nhập Google thất bại (${error.code.name}).',
-      );
+      if (error.code == GoogleSignInExceptionCode.canceled) {
+        throw const AuthCancelled();
+      }
+      throw AuthException('Đăng nhập Google thất bại (${error.code.name}).');
     } on FirebaseAuthException catch (error) {
+      if (error.code == 'popup-closed-by-user' ||
+          error.code == 'cancelled-popup-request') {
+        throw const AuthCancelled();
+      }
       throw AuthException(
         error.message ?? 'Đăng nhập Firebase thất bại (${error.code}).',
       );
@@ -85,9 +88,13 @@ class FirebaseAuthService {
     if (!isAvailable) return;
     try {
       await FirebaseAuth.instance.signOut();
-      if (!kIsWeb && _googleInitialized) await GoogleSignIn.instance.signOut();
     } catch (error) {
-      debugPrint('FirebaseAuthService.signOut: $error');
+      debugPrint('Firebase sign-out failed.');
+    }
+    try {
+      if (!kIsWeb && _googleInitialized) await GoogleSignIn.instance.signOut();
+    } catch (_) {
+      debugPrint('Google sign-out failed.');
     }
   }
 

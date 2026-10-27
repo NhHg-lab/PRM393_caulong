@@ -27,8 +27,8 @@ Chọn bằng `--dart-define` (xem `lib/config/app_config.dart`), phải chạy 
 | _(bỏ trống)_     | Mock trên máy, không cần mạng          | Luôn là `123456`            | Có             |
 | `dummyjson`      | API công khai https://dummyjson.com    | Không                       | Không          |
 | `spring`         | Backend Spring Boot của nhóm           | Gửi qua email thật          | Có             |
-| `firebase`       | Firebase Auth + Firestore, không backend (xem `docs/FIREBASE_DIRECT_MODE.md`) | Liên kết email của Firebase | Có (thật) |
-| `firebaseOtp`    | Backend gửi OTP, account/phiên lưu trên Firebase (xem `docs/FIREBASE_OTP_MODE.md`) | OTP 6 số qua Gmail | Có (thật) |
+| `firebase`       | Firebase Auth + Firestore; Spring chỉ cấp OTP đăng ký (xem `docs/FIREBASE_DIRECT_MODE.md`) | Đăng ký OTP, reset bằng liên kết Firebase | Có (thật) |
+| `firebaseOtp`    | Firebase giữ danh tính; Spring cấp JWT và phục vụ API nghiệp vụ (xem `docs/FIREBASE_OTP_MODE.md`) | OTP 6 số qua Gmail | Có (thật) |
 
 | `GOOGLE_MODE`    | Nút "Đăng nhập với Google"                                             |
 | ---------------- | ---------------------------------------------------------------------- |
@@ -50,6 +50,10 @@ Nút "Khám phá với tài khoản demo" đăng nhập bằng tài khoản khá
 Phiên đăng nhập được lưu bằng `flutter_secure_storage` (Keystore/Keychain).
 
 ## Đăng nhập Google
+
+Ở `AUTH_MODE=firebase`, Google đăng nhập Firebase và app đọc hồ sơ Firestore
+trực tiếp. `AUTH_MODE=spring` và `firebaseOtp` đổi Firebase ID token thành phiên
+JWT Courtly để gọi API nghiệp vụ.
 
 ```
 Google -> Firebase Auth -> Firebase ID token
@@ -81,10 +85,13 @@ Android emulator gọi backend ở `http://10.0.2.2:8080`, các nền tảng kh�
 `http://localhost:8080`. Chạy trên máy thật thì ghi đè địa chỉ:
 
 ```bash
-flutter run --dart-define=AUTH_MODE=spring --dart-define=API_BASE_URL=http://192.168.1.10:8080
+flutter run --dart-define=AUTH_MODE=firebaseOtp --dart-define=API_BASE_URL=http://192.168.1.10:8080
 ```
 
-Các luồng đặt sân, thanh toán và quản trị hiện vẫn dùng dữ liệu mẫu trong bộ nhớ.
+Ở `spring`/`firebaseOtp`, sân, khung giờ, yêu thích, đặt/hủy sân, hồ sơ và quản
+trị lấy từ backend. Ở mock/Firebase-direct, giao diện ShuttleZone vẫn là demo
+trong phiên. MoMo/VNPay chưa có merchant callback nên đơn chỉ lưu `PENDING`,
+không tự đánh dấu đã thanh toán.
 
 ## Tài liệu
 
@@ -100,3 +107,13 @@ Các luồng đặt sân, thanh toán và quản trị hiện vẫn dùng dữ l
 ```bash
 flutter test
 ```
+
+## Sprint 1 — kiến trúc và nghiệm thu
+
+- [Kiến trúc đã chốt](docs/SPRINT1_ARCHITECTURE.md)
+- [Hợp đồng backend OTP](docs/SPRINT1_OTP_CONTRACT.md)
+- [Mô hình dữ liệu](docs/DATA_MODEL.md)
+- [Kết quả kiểm thử và hướng dẫn nghiệm thu](docs/SPRINT1_ACCEPTANCE.md)
+
+Chế độ tích hợp chính: `AUTH_MODE=firebase`, cần Spring cho đăng ký OTP.
+Mặc định vẫn mock. Phiên cũ không có thông tin chế độ sẽ yêu cầu đăng nhập lại.

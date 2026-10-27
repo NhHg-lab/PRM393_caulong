@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:http/http.dart' as http;
+
 import '../config/app_config.dart';
 import '../models/auth_models.dart';
 import '../models/models.dart';
@@ -24,7 +26,7 @@ class CourtApiService {
     final response = favorite
         ? await _client.post('/favorites', body: {'courtId': courtId})
         : await _client.delete('/favorites/$courtId');
-    _ensureSuccess(response.statusCode, response.body);
+    _ensureSuccess(response.statusCode, _body(response));
   }
 
   Future<List<TimeSlot>> slots(String courtId, DateTime date) async {
@@ -32,7 +34,7 @@ class CourtApiService {
     final response = await _client.get('/courts/$courtId/slots?date=$day');
     return _list(
       response.statusCode,
-      response.body,
+      _body(response),
     ).map(TimeSlot.fromJson).toList(growable: false);
   }
 
@@ -40,7 +42,7 @@ class CourtApiService {
     final response = await _client.get('/bookings');
     return _list(
       response.statusCode,
-      response.body,
+      _body(response),
     ).map(Booking.fromJson).toList(growable: false);
   }
 
@@ -52,12 +54,12 @@ class CourtApiService {
       '/bookings',
       body: {'slotId': slotId, 'paymentMethod': paymentMethod},
     );
-    return Booking.fromJson(_map(response.statusCode, response.body));
+    return Booking.fromJson(_map(response.statusCode, _body(response)));
   }
 
   Future<Booking> cancelBooking(String id) async {
     final response = await _client.post('/bookings/$id/cancel');
-    return Booking.fromJson(_map(response.statusCode, response.body));
+    return Booking.fromJson(_map(response.statusCode, _body(response)));
   }
 
   Future<AppUser> updateProfile({
@@ -68,12 +70,12 @@ class CourtApiService {
       '/users/me',
       body: {'fullName': fullName, 'phone': phone},
     );
-    return AppUser.fromJson(_map(response.statusCode, response.body));
+    return AppUser.fromJson(_map(response.statusCode, _body(response)));
   }
 
   Future<AdminOverview> overview() async {
     final response = await _client.get('/admin/overview');
-    return AdminOverview.fromJson(_map(response.statusCode, response.body));
+    return AdminOverview.fromJson(_map(response.statusCode, _body(response)));
   }
 
   Future<List<AdminSlot>> adminSchedule(DateTime date) async {
@@ -82,7 +84,7 @@ class CourtApiService {
     );
     return _list(
       response.statusCode,
-      response.body,
+      _body(response),
     ).map(AdminSlot.fromJson).toList(growable: false);
   }
 
@@ -91,7 +93,7 @@ class CourtApiService {
       '/admin/slots/$id',
       body: {'enabled': enabled},
     );
-    _ensureSuccess(response.statusCode, response.body);
+    _ensureSuccess(response.statusCode, _body(response));
   }
 
   Future<List<Court>> adminCourts() async =>
@@ -99,12 +101,12 @@ class CourtApiService {
 
   Future<Court> createCourt(Map<String, dynamic> body) async {
     final response = await _client.post('/admin/courts', body: body);
-    return Court.fromJson(_map(response.statusCode, response.body));
+    return Court.fromJson(_map(response.statusCode, _body(response)));
   }
 
   Future<Court> updateCourt(String id, Map<String, dynamic> body) async {
     final response = await _client.put('/admin/courts/$id', body: body);
-    return Court.fromJson(_map(response.statusCode, response.body));
+    return Court.fromJson(_map(response.statusCode, _body(response)));
   }
 
   Future<void> setCourtActive(String id, bool enabled) async {
@@ -112,14 +114,14 @@ class CourtApiService {
       '/admin/courts/$id/active',
       body: {'enabled': enabled},
     );
-    _ensureSuccess(response.statusCode, response.body);
+    _ensureSuccess(response.statusCode, _body(response));
   }
 
   Future<List<AdminAccount>> accounts() async {
     final response = await _client.get('/admin/accounts');
     return _list(
       response.statusCode,
-      response.body,
+      _body(response),
     ).map(AdminAccount.fromJson).toList(growable: false);
   }
 
@@ -128,12 +130,12 @@ class CourtApiService {
       '/admin/accounts/$id/enabled',
       body: {'enabled': enabled},
     );
-    _ensureSuccess(response.statusCode, response.body);
+    _ensureSuccess(response.statusCode, _body(response));
   }
 
-  Future<List<Court>> _courtList(dynamic response) async => _list(
-    response.statusCode as int,
-    response.body as String,
+  Future<List<Court>> _courtList(http.Response response) async => _list(
+    response.statusCode,
+    _body(response),
   ).map(Court.fromJson).toList(growable: false);
 }
 
@@ -247,3 +249,5 @@ String _isoDate(DateTime date) =>
     '${date.year.toString().padLeft(4, '0')}-'
     '${date.month.toString().padLeft(2, '0')}-'
     '${date.day.toString().padLeft(2, '0')}';
+
+String _body(http.Response response) => utf8.decode(response.bodyBytes);

@@ -11,7 +11,7 @@ enum AuthMode {
   /// Gọi backend Spring Boot của nhóm.
   spring,
 
-  /// Nối thẳng Firebase (Authentication + Firestore), không cần backend/SQL Server.
+  /// Firebase Authentication + Firestore; Spring xử lý OTP đăng ký.
   firebase,
 
   /// Backend gửi/kiểm tra OTP email và tạo Firebase user; phiên và hồ sơ vẫn

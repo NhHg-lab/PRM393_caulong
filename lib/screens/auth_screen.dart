@@ -7,7 +7,6 @@ import '../models/auth_models.dart';
 import '../services/auth_manager.dart';
 import '../services/auth_service.dart';
 import '../services/firebase_auth_service.dart';
-import '../services/firebase_direct_auth_service.dart';
 import '../services/google_token_provider.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
@@ -451,7 +450,7 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
     try {
-      await FirebaseDirectAuthService().sendPasswordResetLink(email);
+      await _auth.sendPasswordResetLink(email);
       _showMessage(
         'Nếu email đã đăng ký, Firebase đã gửi liên kết đặt lại mật khẩu. '
         'Hãy kiểm tra hộp thư (cả mục Spam).',
@@ -492,6 +491,8 @@ class _AuthScreenState extends State<AuthScreen> {
       final user = await action();
       // Thông báo nằm ngoài AuthService/AuthManager; lỗi thông báo không ảnh hưởng đăng nhập.
       unawaited(NotificationService.instance.showLoginSuccess(user.fullName));
+    } on AuthCancelled {
+      // Closing Google's account picker is a normal navigation action.
     } on AuthException catch (error) {
       _showMessage(error.message);
     } catch (_) {

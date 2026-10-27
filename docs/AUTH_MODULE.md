@@ -1,5 +1,11 @@
 # Module xác thực Courtly
 
+> Sprint 1: chế độ tích hợp chính là **Firebase + Firestore + Spring OTP**.
+> Xem [kiến trúc](SPRINT1_ARCHITECTURE.md) và [hợp đồng OTP](SPRINT1_OTP_CONTRACT.md).
+> Các API JWT/SQL và bảng Spring bên dưới mô tả chế độ `AUTH_MODE=spring` tương thích,
+> không phải kiến trúc chính. Phiên cũ thiếu `auth_mode` bị xóa; offline không cấp
+> quyền mở dashboard từ role đã lưu. Reset link đi qua AuthManager.
+
 Tài liệu cho nhóm và cho buổi trình bày "Bảo mật tài khoản". Mô tả phía app Flutter; phía server xem repo `badminton_backend` (README và `docs/AUTH_BACKEND.md`).
 
 ## 1. Kiến trúc

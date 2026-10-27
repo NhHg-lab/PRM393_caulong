@@ -23,10 +23,11 @@ abstract class SessionStorage {
 
 /// Key dùng chung cho hai bản cài đặt.
 abstract final class _Keys {
+  static const mode = 'auth_mode';
   static const refreshToken = 'refresh_token';
   static const expiresAt = 'expires_at';
   static const user = 'user_profile';
-  static const all = [refreshToken, expiresAt, user];
+  static const all = [mode, refreshToken, expiresAt, user];
 }
 
 AuthSession? _decodeSession({
@@ -55,6 +56,7 @@ class SecureSessionStorage implements SessionStorage {
 
   @override
   Future<void> save(AuthSession session) async {
+    await _storage.write(key: _Keys.mode, value: AppConfig.authMode.name);
     await _storage.write(key: _accessToken, value: session.accessToken);
     await _storage.write(key: _Keys.refreshToken, value: session.refreshToken);
     await _storage.write(
@@ -70,6 +72,10 @@ class SecureSessionStorage implements SessionStorage {
   @override
   Future<AuthSession?> read() async {
     try {
+      if (await _storage.read(key: _Keys.mode) != AppConfig.authMode.name) {
+        await clear();
+        return null;
+      }
       return _decodeSession(
         accessToken: await _storage.read(key: _accessToken),
         refreshToken: await _storage.read(key: _Keys.refreshToken),
@@ -98,6 +104,7 @@ class PrefsSessionStorage implements SessionStorage {
   @override
   Future<void> save(AuthSession session) async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_Keys.mode, AppConfig.authMode.name);
     await prefs.setString(tokenKey, session.accessToken);
     if (session.refreshToken != null) {
       await prefs.setString(_Keys.refreshToken, session.refreshToken!);
@@ -112,6 +119,10 @@ class PrefsSessionStorage implements SessionStorage {
   Future<AuthSession?> read() async {
     final prefs = await SharedPreferences.getInstance();
     try {
+      if (prefs.getString(_Keys.mode) != AppConfig.authMode.name) {
+        await clear();
+        return null;
+      }
       return _decodeSession(
         accessToken: prefs.getString(tokenKey),
         refreshToken: prefs.getString(_Keys.refreshToken),

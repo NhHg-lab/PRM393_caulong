@@ -1,16 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'screens/admin_dashboard.dart';
 import 'screens/auth_screen.dart';
-import 'screens/customer_app.dart';
+import 'screens/customer_app.dart' as api_customer;
+import 'screens/shuttlezone/customer_app.dart' as shuttlezone;
 import 'screens/splash_screen.dart';
 import 'services/auth_manager.dart';
+import 'services/court_api_service.dart';
 import 'services/firebase_auth_service.dart';
 import 'services/notification_service.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Các màn đặt sân và xác thực được thiết kế theo luồng điện thoại dọc.
+  // Khóa hướng màn hình để tránh nội dung đăng nhập bị khuất trên landscape.
+  await SystemChrome.setPreferredOrientations(const [
+    DeviceOrientation.portraitUp,
+  ]);
   // Chỉ khởi tạo Firebase khi AppConfig.enableGoogleSignIn = true.
   await initFirebaseIfEnabled();
   // Không chờ: khởi tạo thông báo chạy song song với Splash.
@@ -86,11 +94,22 @@ class _CourtlyAppState extends State<CourtlyApp> {
         home: switch (_destination) {
           AppDestination.splash => const SplashScreen(),
           AppDestination.auth => const AuthScreen(),
-          AppDestination.customer => CustomerApp(
-            user: _auth.currentUser!,
-            onLogout: _auth.logout,
-            onOpenAdmin: _auth.isAdmin ? () => _go(AppDestination.admin) : null,
-          ),
+          AppDestination.customer =>
+            CourtApiService.isEnabled
+                ? api_customer.CustomerApp(
+                    user: _auth.currentUser!,
+                    onLogout: _auth.logout,
+                    onOpenAdmin: _auth.isAdmin
+                        ? () => _go(AppDestination.admin)
+                        : null,
+                  )
+                : shuttlezone.CustomerApp(
+                    user: _auth.currentUser!,
+                    onLogout: _auth.logout,
+                    onOpenAdmin: _auth.isAdmin
+                        ? () => _go(AppDestination.admin)
+                        : null,
+                  ),
           AppDestination.admin => AdminDashboard(
             onExit: () => _go(AppDestination.customer),
           ),

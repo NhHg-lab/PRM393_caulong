@@ -10,24 +10,31 @@ import '../config/app_config.dart';
 import '../models/auth_models.dart';
 import 'auth_service.dart';
 import 'google_token_provider.dart';
+import 'registration_otp_client.dart';
 
 /// Chế độ `AUTH_MODE=firebase`: Flutter nói chuyện thẳng với Firebase,
 /// KHÔNG qua backend Spring Boot và KHÔNG dùng SQL Server.
 ///
 /// - Tài khoản/mật khẩu/Google: Firebase Authentication.
 /// - Hồ sơ (họ tên, SĐT, vai trò): Firestore, collection `users/{uid}`.
-/// - Xác minh email: Firebase gửi email xác minh khi đăng ký và email đặt lại
-///   mật khẩu (liên kết, không phải OTP 6 số).
+/// - Đăng ký: gửi OTP 6 số qua email bằng API của backend Spring Boot
+///   (`/auth/register/send-otp`); khi mã đúng, backend tự tạo user Firebase và
+///   hồ sơ Firestore (`/auth/register/firebase`, Admin SDK). Backend không lưu user vào SQL.
+/// - Quên mật khẩu: Firebase gửi email chứa liên kết đặt lại mật khẩu.
 ///
 /// Vai trò `ADMIN` chỉ gán được thủ công trong Firebase Console; Security Rules
 /// (firestore.rules) không cho người dùng tự đổi vai trò.
-class FirebaseDirectAuthService implements AuthService {
+class FirebaseDirectAuthService
+    implements AuthService, PasswordResetLinkService {
   FirebaseDirectAuthService({
     fb.FirebaseAuth? auth,
     FirebaseFirestore? firestore,
+    RegistrationOtpClient? registrationClient,
   }) : _authOverride = auth,
-       _firestoreOverride = firestore;
+       _firestoreOverride = firestore,
+       _registration = registrationClient ?? RegistrationOtpClient();
 
+  final RegistrationOtpClient _registration;
   final fb.FirebaseAuth? _authOverride;
   final FirebaseFirestore? _firestoreOverride;
 
@@ -63,43 +70,34 @@ class FirebaseDirectAuthService implements AuthService {
     return _sessionFor(_requireUser(credential), authProvider: 'LOCAL');
   });
 
-  /// Firebase không dùng OTP 6 số khi đăng ký (nó gửi email xác minh sau khi tạo).
+  /// Đăng ký phải xác minh email bằng OTP 6 số do backend gửi.
   @override
-  bool get requiresSignupOtp => false;
+  bool get requiresSignupOtp => true;
 
+  /// Bước 1: backend gửi mã OTP 6 số tới [email]. 409 nếu email đã dùng,
+  /// 429 nếu gửi quá nhanh/quá nhiều, 503 nếu backend chưa cấu hình mail.
   @override
-  Future<OtpSent> sendRegisterOtp(String email) async {
-    throw const AuthException('Chế độ Firebase không dùng OTP khi đăng ký.');
-  }
+  Future<OtpSent> sendRegisterOtp(String email) => _registration.send(email);
 
+  /// Bước 2: backend kiểm tra OTP rồi tự tạo tài khoản Firebase (Admin SDK) và hồ sơ
+  /// Firestore. App chỉ đăng nhập lại bằng tài khoản vừa tạo để lấy phiên.
   @override
-  Future<AuthSession> signup(SignupRequest request) => _guard(() async {
-    final credential = await _auth.createUserWithEmailAndPassword(
-      email: request.email.trim(),
-      password: request.password,
-    );
-    final user = _requireUser(credential);
+  Future<AuthSession> signup(SignupRequest request) async {
+    await _registration.register(request);
     try {
-      await user.updateDisplayName(request.fullName.trim());
-      await _createProfile(
-        user,
-        fullName: request.fullName.trim(),
-        phone: request.phone,
-        authProvider: 'LOCAL',
+      return await login(
+        LoginRequest(
+          identifier: request.email.trim(),
+          password: request.password,
+        ),
       );
     } catch (_) {
-      // Chưa có hồ sơ thì đăng xuất để không kẹt ở trạng thái nửa vời.
-      // Lần đăng nhập sau sẽ tự tạo hồ sơ còn thiếu.
-      await _auth.signOut();
-      rethrow;
+      try {
+        await _auth.signOut();
+      } catch (_) {}
+      throw RegistrationOtpClient.uncertainRegistration;
     }
-    try {
-      await user.sendEmailVerification();
-    } catch (_) {
-      // Gửi email xác minh là phần phụ, không làm hỏng đăng ký.
-    }
-    return _sessionFor(user, authProvider: 'LOCAL');
-  });
+  }
 
   // ---- Quên mật khẩu -------------------------------------------------------
 
@@ -129,6 +127,7 @@ class FirebaseDirectAuthService implements AuthService {
 
   /// Gửi email chứa liên kết đặt lại mật khẩu. Firebase trả thành công kể cả khi
   /// email chưa đăng ký (bảo vệ chống dò email), nên không lộ email nào tồn tại.
+  @override
   Future<void> sendPasswordResetLink(String email) =>
       _guard(() => _auth.sendPasswordResetEmail(email: email.trim()));
 
@@ -158,7 +157,9 @@ class FirebaseDirectAuthService implements AuthService {
   Future<AuthSession> refresh(AuthSession current) async {
     try {
       final user = await _currentUser();
-      if (user == null) throw AuthException.sessionExpired;
+      if (user == null || user.uid != current.user.id) {
+        throw AuthException.sessionExpired;
+      }
       final token = await user.getIdToken(true);
       if (token == null) throw AuthException.sessionExpired;
       return current.copyWith(
@@ -175,9 +176,14 @@ class FirebaseDirectAuthService implements AuthService {
   @override
   Future<AppUser?> fetchProfile(AuthSession session) => _guard(() async {
     final user = await _currentUser();
-    if (user == null) throw AuthException.sessionExpired;
-    final snapshot = await _db.collection(usersCollection).doc(user.uid).get();
-    if (!snapshot.exists) return null;
+    if (user == null || user.uid != session.user.id) {
+      throw AuthException.sessionExpired;
+    }
+    final snapshot = await _db
+        .collection(usersCollection)
+        .doc(user.uid)
+        .get(const GetOptions(source: Source.server));
+    if (!snapshot.exists) throw AuthException.sessionExpired;
     return _userFromData(user, snapshot.data() ?? const {});
   });
 
@@ -233,7 +239,9 @@ class FirebaseDirectAuthService implements AuthService {
     String authProvider,
   ) async {
     final reference = _db.collection(usersCollection).doc(user.uid);
-    final snapshot = await reference.get();
+    final snapshot = await reference.get(
+      const GetOptions(source: Source.server),
+    );
     if (snapshot.exists) {
       return _userFromData(user, snapshot.data() ?? const {});
     }
@@ -276,18 +284,29 @@ class FirebaseDirectAuthService implements AuthService {
     );
   }
 
-  AppUser _userFromData(fb.User user, Map<String, dynamic> data) => AppUser(
-    id: user.uid,
-    fullName: (data['fullName'] as String?) ?? user.displayName ?? '',
-    email: (data['email'] as String?) ?? user.email ?? '',
-    phone: data['phone'] as String?,
-    role: UserRole.fromApi(data['role']),
-    avatarUrl: (data['avatarUrl'] as String?) ?? user.photoURL,
-    authProvider: (data['authProvider'] as String?) ?? 'LOCAL',
-  );
+  AppUser _userFromData(fb.User user, Map<String, dynamic> data) {
+    if (data['fullName'] is! String ||
+        data['email'] is! String ||
+        data['email'] != user.email?.toLowerCase() ||
+        !['CUSTOMER', 'ADMIN'].contains(data['role']) ||
+        !['LOCAL', 'GOOGLE'].contains(data['authProvider']) ||
+        (data['phone'] != null && data['phone'] is! String) ||
+        (data['avatarUrl'] != null && data['avatarUrl'] is! String)) {
+      throw const FormatException('Invalid profile');
+    }
+    return AppUser(
+      id: user.uid,
+      fullName: data['fullName'] as String,
+      email: data['email'] as String,
+      phone: data['phone'] as String?,
+      role: UserRole.fromApi(data['role']),
+      avatarUrl: data['avatarUrl'] as String?,
+      authProvider: data['authProvider'] as String,
+    );
+  }
 
   Future<T> _guard<T>(Future<T> Function() body) async {
-    if (Firebase.apps.isEmpty) {
+    if (_authOverride == null && Firebase.apps.isEmpty) {
       throw const AuthException(
         'Firebase chưa được cấu hình (thiếu google-services.json hoặc chưa khởi tạo).',
       );
@@ -300,6 +319,11 @@ class FirebaseDirectAuthService implements AuthService {
       throw mapFirebaseAuthError(error.code);
     } on FirebaseException catch (error) {
       throw mapFirestoreError(error.code);
+    } on FormatException {
+      throw const AuthException(
+        'Hồ sơ tài khoản không hợp lệ. Vui lòng liên hệ quản trị.',
+        statusCode: 403,
+      );
     } on TimeoutException {
       throw AuthException.timeout;
     }
