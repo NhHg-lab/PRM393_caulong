@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../data/demo_data.dart';
+import '../services/court_api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common_widgets.dart';
+import 'api_admin_dashboard.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key, required this.onExit});
@@ -17,6 +19,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    if (CourtApiService.isEnabled) {
+      return ApiAdminDashboard(onExit: widget.onExit);
+    }
     const titles = ['Tổng quan', 'Lịch đặt', 'Quản lý sân', 'Tài khoản'];
     final pages = const [
       _OverviewTab(),

@@ -27,7 +27,8 @@ Chọn bằng `--dart-define` (xem `lib/config/app_config.dart`), phải chạy 
 | _(bỏ trống)_     | Mock trên máy, không cần mạng          | Luôn là `123456`            | Có             |
 | `dummyjson`      | API công khai https://dummyjson.com    | Không                       | Không          |
 | `spring`         | Backend Spring Boot của nhóm           | Gửi qua email thật          | Có             |
-| `firebase`       | Firebase Auth + Firestore + Spring OTP (xem `docs/FIREBASE_DIRECT_MODE.md`) | Đăng ký OTP qua Spring; reset bằng liên kết Firebase | Có (thật) |
+| `firebase`       | Firebase Auth + Firestore; Spring chỉ cấp OTP đăng ký (xem `docs/FIREBASE_DIRECT_MODE.md`) | Đăng ký OTP, reset bằng liên kết Firebase | Có (thật) |
+| `firebaseOtp`    | Firebase giữ danh tính; Spring cấp JWT và phục vụ API nghiệp vụ (xem `docs/FIREBASE_OTP_MODE.md`) | OTP 6 số qua Gmail | Có (thật) |
 
 | `GOOGLE_MODE`    | Nút "Đăng nhập với Google"                                             |
 | ---------------- | ---------------------------------------------------------------------- |
@@ -50,8 +51,9 @@ Phiên đăng nhập được lưu bằng `flutter_secure_storage` (Keystore/Key
 
 ## Đăng nhập Google
 
-Ở chế độ chính `AUTH_MODE=firebase`, Google đăng nhập Firebase và app đọc hồ sơ
-Firestore trực tiếp. Sơ đồ đổi token dưới đây chỉ dành cho `AUTH_MODE=spring`.
+Ở `AUTH_MODE=firebase`, Google đăng nhập Firebase và app đọc hồ sơ Firestore
+trực tiếp. `AUTH_MODE=spring` và `firebaseOtp` đổi Firebase ID token thành phiên
+JWT Courtly để gọi API nghiệp vụ.
 
 ```
 Google -> Firebase Auth -> Firebase ID token
@@ -76,22 +78,27 @@ flutter run                                                          # mock, Goo
 flutter run --dart-define=GOOGLE_MODE=mock                           # offline hoàn toàn (demo/lab)
 flutter run --dart-define=AUTH_MODE=spring                           # backend Spring
 flutter run --dart-define=AUTH_MODE=spring --dart-define=GOOGLE_MODE=mock
+flutter run --dart-define=AUTH_MODE=firebaseOtp                      # OTP backend + account Firebase
 ```
 
 Android emulator gọi backend ở `http://10.0.2.2:8080`, các nền tảng khác dùng
 `http://localhost:8080`. Chạy trên máy thật thì ghi đè địa chỉ:
 
 ```bash
-flutter run --dart-define=AUTH_MODE=spring --dart-define=API_BASE_URL=http://192.168.1.10:8080
+flutter run --dart-define=AUTH_MODE=firebaseOtp --dart-define=API_BASE_URL=http://192.168.1.10:8080
 ```
 
-Các luồng đặt sân, thanh toán và quản trị hiện vẫn dùng dữ liệu mẫu trong bộ nhớ.
+Ở `spring`/`firebaseOtp`, sân, khung giờ, yêu thích, đặt/hủy sân, hồ sơ và quản
+trị lấy từ backend. Ở mock/Firebase-direct, giao diện ShuttleZone vẫn là demo
+trong phiên. MoMo/VNPay chưa có merchant callback nên đơn chỉ lưu `PENDING`,
+không tự đánh dấu đã thanh toán.
 
 ## Tài liệu
 
 - [docs/AUTH_MODULE.md](docs/AUTH_MODULE.md): kiến trúc module xác thực, các luồng,
   hợp đồng API, biện pháp bảo mật, khắc phục sự cố
 - [docs/FIREBASE_SETUP.md](docs/FIREBASE_SETUP.md): cấu hình Firebase / Google Sign-In
+- [docs/FIREBASE_OTP_MODE.md](docs/FIREBASE_OTP_MODE.md): OTP Gmail nhưng lưu account trên Firebase
 - [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md): kịch bản demo "Bảo mật tài khoản"
 - [docs/LAB_SUGGESTIONS.md](docs/LAB_SUGGESTIONS.md): đề xuất 3 bài lab (bản nháp)
 

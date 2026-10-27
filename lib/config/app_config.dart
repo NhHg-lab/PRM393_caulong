@@ -13,6 +13,10 @@ enum AuthMode {
 
   /// Firebase Authentication + Firestore; Spring xử lý OTP đăng ký.
   firebase,
+
+  /// Backend gửi/kiểm tra OTP email và tạo Firebase user; phiên và hồ sơ vẫn
+  /// do Firebase Authentication + Firestore quản lý.
+  firebaseOtp,
 }
 
 /// Nơi lưu phiên đăng nhập.
@@ -45,6 +49,8 @@ abstract final class AppConfig {
 
   static const AuthMode authMode = _authModeName == 'spring'
       ? AuthMode.spring
+      : _authModeName == 'firebaseOtp'
+      ? AuthMode.firebaseOtp
       : _authModeName == 'firebase'
       ? AuthMode.firebase
       : _authModeName == 'dummyjson'

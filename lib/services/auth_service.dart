@@ -64,6 +64,7 @@ abstract class AuthService {
         AuthMode.dummyJson => DummyJsonAuthService(client: client),
         AuthMode.spring => SpringAuthService(client: client),
         AuthMode.firebase => FirebaseDirectAuthService(),
+        AuthMode.firebaseOtp => FirebaseOtpAuthService(client: client),
       };
 }
 

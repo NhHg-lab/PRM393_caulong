@@ -10,7 +10,8 @@ import '../models/auth_models.dart';
 /// Không bao giờ ném lỗi: thiếu google-services.json thì app vẫn chạy bình thường.
 Future<void> initFirebaseIfEnabled() async {
   if (!AppConfig.enableGoogleSignIn &&
-      AppConfig.authMode != AuthMode.firebase) {
+      AppConfig.authMode != AuthMode.firebase &&
+      AppConfig.authMode != AuthMode.firebaseOtp) {
     return;
   }
   try {
