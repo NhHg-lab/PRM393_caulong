@@ -256,19 +256,28 @@ class DemoTicket {
     required this.paid,
     required this.extras,
     required this.method,
-  }) : id = 'SZ-${DateTime.now().microsecondsSinceEpoch}';
+    String? id,
+    String? pin,
+    this.cancelled = false,
+    this.isConfirmed = true,
+  })  : id = id ?? 'SZ-${DateTime.now().microsecondsSinceEpoch}',
+        _customPin = pin;
   final String id;
+  final String? _customPin;
   final CourtSelection selection;
   final int total, paid;
   final String extras, method;
-  bool cancelled = false;
+  bool cancelled;
+  bool isConfirmed;
   bool get canCancel =>
       !cancelled &&
       selection.startsAt.difference(DateTime.now()) >= const Duration(hours: 4);
-  String get pin => id.substring(id.length - 4);
-  String get paymentLabel => paid == total
-      ? 'Đã thanh toán đủ (demo)'
-      : 'Đã cọc ${formatVnd(paid)} (demo)';
+  String get pin => _customPin ?? (id.length >= 4 ? id.substring(id.length - 4) : '1234');
+  String get paymentLabel => cancelled
+      ? 'ĐÃ HỦY'
+      : paid == total
+          ? 'Đã thanh toán đủ (demo)'
+          : 'Đã cọc ${formatVnd(paid)} (demo)';
 }
 
 class VenuePhoto extends StatelessWidget {

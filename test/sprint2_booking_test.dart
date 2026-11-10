@@ -212,4 +212,39 @@ void main() {
       expect(updated.paid, 240000);
     });
   });
+
+  group('Repository Singletons & App State Integration', () {
+    test('BookingRepository.instance shares state across consumers', () async {
+      BookingRepository.resetSharedInstance();
+      final r1 = BookingRepository.instance();
+      final r2 = BookingRepository.instance();
+      expect(identical(r1, r2), isTrue);
+
+      final date = DateTime.now().add(const Duration(days: 1));
+      await r1.createHoldBooking(
+        userId: 'u1',
+        venueId: 'v1',
+        venueName: 'Sân Test',
+        courtNumber: 1,
+        date: date,
+        hours: [10],
+        total: 100000,
+        paid: 100000,
+      );
+
+      final bookings = await r2.getUserBookings('u1');
+      expect(bookings.length, 1);
+      expect(bookings.first.venueName, 'Sân Test');
+    });
+
+    test('VenueRepository.instance shares favorite state', () async {
+      VenueRepository.resetSharedInstance();
+      final v1 = VenueRepository.instance();
+      final v2 = VenueRepository.instance();
+      expect(identical(v1, v2), isTrue);
+
+      await v1.toggleFavorite('u1', '0', true);
+      expect(await v2.isFavorite('u1', '0'), isTrue);
+    });
+  });
 }

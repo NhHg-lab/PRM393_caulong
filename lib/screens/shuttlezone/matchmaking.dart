@@ -28,7 +28,7 @@ class MatchmakingPage extends StatefulWidget {
 class _MatchmakingPageState extends State<MatchmakingPage> {
   int _tab = 0;
   String _level = 'Tất cả';
-  final _matches = [
+  static final List<_Match> _sharedMatches = [
     _Match(
       'SkyBadminton • Cần thêm 1 bạn',
       'SkyBadminton Club • Quận 7 • Sân 4',
@@ -62,6 +62,8 @@ class _MatchmakingPageState extends State<MatchmakingPage> {
       3,
     ),
   ];
+
+  List<_Match> get _matches => _sharedMatches;
   @override
   Widget build(BuildContext context) {
     final filtered = _matches

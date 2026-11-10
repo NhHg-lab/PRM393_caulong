@@ -32,12 +32,23 @@ abstract class BookingRepository {
     required String userId,
   });
 
+  static BookingRepository? _sharedInstance;
+
+  static void resetSharedInstance() {
+    _sharedInstance = null;
+  }
+
   factory BookingRepository.instance({FirebaseFirestore? firestore}) {
-    if (AppConfig.authMode == AuthMode.firebase &&
-        (firestore != null || Firebase.apps.isNotEmpty)) {
+    if (firestore != null) {
       return FirestoreBookingRepository(firestore: firestore);
     }
-    return DemoBookingRepository();
+    if (_sharedInstance != null) {
+      return _sharedInstance!;
+    }
+    if (AppConfig.authMode == AuthMode.firebase && Firebase.apps.isNotEmpty) {
+      return _sharedInstance = FirestoreBookingRepository();
+    }
+    return _sharedInstance = DemoBookingRepository();
   }
 }
 

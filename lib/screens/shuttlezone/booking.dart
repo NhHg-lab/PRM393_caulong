@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'shared.dart';
+import '../../services/booking_repository.dart';
+import '../../services/notification_service.dart';
 
 class VenueDetailScreen extends StatefulWidget {
   const VenueDetailScreen({
@@ -25,12 +27,36 @@ class _VenueDetailScreenState extends State<VenueDetailScreen> {
   late DateTime _date;
   int _court = 1;
   final _hours = <int>{};
+  final List<int> _repoBusyHours = [];
+
   @override
   void initState() {
     super.initState();
     _date =
         widget.initialDate ??
         DateUtils.dateOnly(DateTime.now().add(const Duration(days: 1)));
+    _refreshRepoBusyHours();
+  }
+
+  Future<void> _refreshRepoBusyHours() async {
+    try {
+      final active = await BookingRepository.instance().getActiveBookingsForCourt(
+        venueId: widget.venue.id.toString(),
+        courtNumber: _court,
+        date: _date,
+      );
+      final busy = <int>{};
+      for (final b in active) {
+        busy.addAll(b.hours);
+      }
+      if (mounted) {
+        setState(() {
+          _repoBusyHours
+            ..clear()
+            ..addAll(busy);
+        });
+      }
+    } catch (_) {}
   }
 
   bool _unavailable(int hour) =>
@@ -42,6 +68,7 @@ class _VenueDetailScreenState extends State<VenueDetailScreen> {
       ).isBefore(DateTime.now()) ||
       hour == 15 ||
       hour == 18 ||
+      _repoBusyHours.contains(hour) ||
       widget.tickets.any(
         (t) =>
             !t.cancelled &&
@@ -130,6 +157,7 @@ class _VenueDetailScreenState extends State<VenueDetailScreen> {
             if (picked != null && mounted) {
               setState(() {
                 _date = picked;
+                _refreshRepoBusyHours();
                 _hours.clear();
               });
             }
@@ -181,6 +209,7 @@ class _VenueDetailScreenState extends State<VenueDetailScreen> {
                 selectedColor: szLime,
                 onSelected: (_) => setState(() {
                   _court = i;
+                  _refreshRepoBusyHours();
                   _hours.clear();
                 }),
               ),
@@ -631,18 +660,53 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     if (_submitted || _seconds == 0) return;
     setState(() => _submitted = true);
     _timer.cancel();
+    final extrasList = [
+      '$_rackets vợt',
+      if (_shuttles) '1 ống cầu',
+      if (_drink) '1 chai Pocari',
+    ].join(' • ');
+
+    String bookingId = 'SZ-${DateTime.now().microsecondsSinceEpoch}';
+    String pin = (1000 + (DateTime.now().microsecond % 9000)).toString();
+
+    try {
+      final repo = BookingRepository.instance();
+      final holdBooking = await repo.createHoldBooking(
+        userId: 'demo',
+        venueId: widget.selection.venue.id.toString(),
+        venueName: widget.selection.venue.name,
+        courtNumber: widget.selection.court,
+        date: widget.selection.date,
+        hours: widget.selection.hours,
+        total: _total,
+        paid: _payable,
+        extras: extrasList,
+        paymentMethod: _methods[_method],
+      );
+      bookingId = holdBooking.id;
+      pin = holdBooking.pin;
+      if (_full || _payable >= _total) {
+        await repo.confirmBooking(holdBooking.id);
+      }
+    } catch (_) {}
+
     final ticket = DemoTicket(
+      id: bookingId,
+      pin: pin,
       selection: widget.selection,
       total: _total,
       paid: _payable,
       method: _methods[_method],
-      extras: [
-        '$_rackets vợt',
-        if (_shuttles) '1 ống cầu',
-        if (_drink) '1 chai Pocari',
-      ].join(' • '),
+      extras: extrasList,
     );
     widget.onBooked(ticket);
+    try {
+      NotificationService.instance.show(
+        'Đặt sân thành công!',
+        'Vé ${ticket.id} tại ${widget.selection.venue.name} đã được ghi nhận.',
+      );
+    } catch (_) {}
+    if (!mounted) return;
     await szPush(context, TicketScreen(ticket: ticket, newlyCreated: true));
     if (mounted) Navigator.of(context).pop(true);
   }
@@ -769,6 +833,71 @@ class _TicketScreenState extends State<TicketScreen> {
                           'Còn lại: ${formatVnd(t.total - t.paid)} (demo)',
                         ),
                       SzLine(Icons.credit_card, t.method),
+                      if (t.method.contains('VietQR') && !t.cancelled) ...[
+                        const Divider(height: 24),
+                        Row(
+                          children: [
+                            Container(
+                              width: 80,
+                              height: 80,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: szSoft, width: 2),
+                              ),
+                              child: Center(
+                                child: Image.network(
+                                  'https://api.vietqr.io/image/970422-0988776655-compact2.png?amount=${t.paid}&addInfo=COURTLY%20${t.pin}&accountName=COURTLY%20BADMINTON',
+                                  width: 72,
+                                  height: 72,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (context, error, stackTrace) => const Icon(
+                                    Icons.qr_code_2,
+                                    size: 54,
+                                    color: szGreen,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'VietQR Chuyển khoản',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 13,
+                                      color: szGreen,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'MB Bank • 0988776655',
+                                    style: const TextStyle(fontSize: 11, color: szMuted),
+                                  ),
+                                  Text(
+                                    'Nội dung: COURTLY ${t.pin}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Số tiền: ${formatVnd(t.paid)}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 12,
+                                      color: szGreen,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -848,6 +977,12 @@ class _TicketScreenState extends State<TicketScreen> {
                         ),
                       );
                       if (confirmed == true && mounted) {
+                        try {
+                          await BookingRepository.instance().cancelBooking(
+                            bookingId: t.id,
+                            userId: 'demo',
+                          );
+                        } catch (_) {}
                         setState(() => t.cancelled = true);
                       }
                     }
