@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../models/auth_models.dart';
 import 'shared.dart';
+import '../../services/venue_repository.dart';
+import '../../services/booking_repository.dart';
+import '../../models/booking_model.dart';
 import 'booking.dart';
 import 'matchmaking.dart';
 
@@ -23,6 +26,50 @@ class _CustomerAppState extends State<CustomerApp> {
   int _tab = 0;
   final _favorites = <int>{0};
   final _tickets = <DemoTicket>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _syncFromRepositories();
+  }
+
+  Future<void> _syncFromRepositories() async {
+    try {
+      final repo = BookingRepository.instance();
+      final bookings = await repo.getUserBookings(widget.user.id);
+      if (bookings.isNotEmpty && mounted) {
+        setState(() {
+          for (final b in bookings) {
+            if (!_tickets.any((t) => t.id == b.id)) {
+              final venue = venues.firstWhere(
+                (v) => v.id.toString() == b.venueId,
+                orElse: () => venues.first,
+              );
+              final selection = CourtSelection(
+                venue: venue,
+                date: b.date,
+                court: b.courtNumber,
+                hours: b.hours.toSet(),
+              );
+              _tickets.add(
+                DemoTicket(
+                  id: b.id,
+                  pin: b.pin,
+                  selection: selection,
+                  total: b.total,
+                  paid: b.paid,
+                  extras: b.extras,
+                  method: b.paymentMethod,
+                  cancelled: b.status == BookingStatus.cancelled,
+                  isConfirmed: b.status == BookingStatus.confirmed,
+                ),
+              );
+            }
+          }
+        });
+      }
+    } catch (_) {}
+  }
   void _go(int tab) => setState(() => _tab = tab);
   void _book(Venue venue, {DateTime? date}) => szPush(
     context,
@@ -148,22 +195,34 @@ class _CustomerAppState extends State<CustomerApp> {
             ExplorePage(
               onBook: _book,
               favorites: _favorites,
-              onFavorite: (id) => setState(
-                () => _favorites.contains(id)
-                    ? _favorites.remove(id)
-                    : _favorites.add(id),
-              ),
+              onFavorite: (id) {
+                final isFav = _favorites.contains(id);
+                setState(() => isFav ? _favorites.remove(id) : _favorites.add(id));
+                try {
+                  VenueRepository.instance().toggleFavorite(
+                    widget.user.id,
+                    id.toString(),
+                    !isFav,
+                  );
+                } catch (_) {}
+              },
               onGo: _go,
             ),
             ExplorePage(
               searchOnly: true,
               onBook: _book,
               favorites: _favorites,
-              onFavorite: (id) => setState(
-                () => _favorites.contains(id)
-                    ? _favorites.remove(id)
-                    : _favorites.add(id),
-              ),
+              onFavorite: (id) {
+                final isFav = _favorites.contains(id);
+                setState(() => isFav ? _favorites.remove(id) : _favorites.add(id));
+                try {
+                  VenueRepository.instance().toggleFavorite(
+                    widget.user.id,
+                    id.toString(),
+                    !isFav,
+                  );
+                } catch (_) {}
+              },
               onGo: _go,
             ),
             const MatchmakingPage(),

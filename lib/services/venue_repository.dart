@@ -12,11 +12,23 @@ abstract class VenueRepository {
   Future<void> toggleFavorite(String userId, String venueId, bool isFavorite);
   Stream<Set<String>> watchFavorites(String userId);
 
+  static VenueRepository? _sharedInstance;
+
+  static void resetSharedInstance() {
+    _sharedInstance = null;
+  }
+
   factory VenueRepository.instance({FirebaseFirestore? firestore}) {
-    if (AppConfig.authMode == AuthMode.firebase && (firestore != null || Firebase.apps.isNotEmpty)) {
+    if (firestore != null) {
       return FirestoreVenueRepository(firestore: firestore);
     }
-    return DemoVenueRepository();
+    if (_sharedInstance != null) {
+      return _sharedInstance!;
+    }
+    if (AppConfig.authMode == AuthMode.firebase && Firebase.apps.isNotEmpty) {
+      return _sharedInstance = FirestoreVenueRepository();
+    }
+    return _sharedInstance = DemoVenueRepository();
   }
 }
 
